@@ -1,6 +1,8 @@
 use nom::{
     IResult,
-    Parser,
+    InputIter,
+    InputTake,
+    InputLength,
     multi::{many0, many1},
     branch::alt,
     character::complete::{anychar, alpha1, alphanumeric1, multispace0, one_of, none_of, digit1, hex_digit1, oct_digit1, not_line_ending},
@@ -143,13 +145,181 @@ impl<'b> Token<'b> {
     }
 }
 
-fn match_token<'a>(source: Span<'a>, matched: &'static str, token: Token<'a>) -> IResult<Span<'a>, Token<'a>, ErrorTree<Span<'a>>> {
+#[derive(Debug, Clone)]
+pub struct Error<'a>{
+    source: Span<'a>,
+    location: Span<'a>, 
+    msg: &'static str
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SpanWith<'a, 'b, T>(Span<'a>, &'b std::cell::RefCell<T>) where 'a: 'b;
+
+impl<'a, 'b, T> nom::InputTake for SpanWith<'a, 'b, T> {
+    fn take(&self, count: usize) -> Self {
+        let SpanWith(span, errs) = self;
+        SpanWith(span.take(count), errs)
+    }
+    fn take_split(&self, count: usize) -> (Self, Self) {
+        let SpanWith(span, errs) = self;
+        let (span1, span2) = span.take_split(count);
+        (SpanWith(span1, errs), SpanWith(span2, errs))
+    }
+}
+
+impl<'a, 'b, T> nom::InputLength for SpanWith<'a, 'b, T> {
+    fn input_len(&self) -> usize {
+        let SpanWith(span, errs) = self;
+        span.input_len()
+    }
+}
+
+impl<'a, 'b, T> nom::InputIter for SpanWith<'a, 'b, T> {
+    type Item = <Span<'a> as nom::InputIter>::Item;
+    type Iter = <Span<'a> as nom::InputIter>::Iter;
+    type IterElem = <Span<'a> as nom::InputIter>::IterElem;
+    fn slice_index(&self, count: usize) -> Result<usize, nom::Needed> {
+        let SpanWith(span, errs) = self;
+        span.slice_index(count)
+    }
+    fn position<P>(&self, predicate: P) -> Option<usize>
+      where
+        P: Fn(Self::Item) -> bool {
+        let SpanWith(span, errs) = self;
+        span.position(predicate)
+    }
+    fn iter_elements(&self) -> Self::IterElem {
+        let SpanWith(span, errs) = self;
+        span.iter_elements()
+    }
+    fn iter_indices(&self) -> Self::Iter {
+        let SpanWith(span, errs) = self;
+        span.iter_indices()
+    }
+}
+
+impl<'a, 'b, T> nom::InputTakeAtPosition for SpanWith<'a, 'b, T> {
+
+    type Item = <Span<'a> as nom::InputTakeAtPosition>::Item;
+
+    fn split_at_position_complete<P, E: nom::error::ParseError<Self>>(
+        &self,
+        predicate: P,
+      ) -> IResult<Self, Self, E>
+      where
+        P: Fn(Self::Item) -> bool {
+        match self.split_at_position(predicate) {
+            Err(nom::Err::Incomplete(_)) => Ok(self.take_split(self.input_len())),
+            res => res,
+        }
+    }
+
+    fn split_at_position<P, E: nom::error::ParseError<Self>>(&self, predicate: P) -> IResult<Self, Self, E>
+      where
+        P: Fn(Self::Item) -> bool,  {
+        let SpanWith(span, t) = self;
+        match span.position(predicate) {
+            Some(n) => Ok(self.take_split(n)),
+            None => Err(nom::Err::Incomplete(nom::Needed::new(1))),
+        }
+    }
+
+    fn split_at_position1<P, E: nom::error::ParseError<Self>>(
+        &self,
+        predicate: P,
+        e: nom::error::ErrorKind,
+      ) -> IResult<Self, Self, E>
+      where
+        P: Fn(Self::Item) -> bool 
+    {
+        let SpanWith(span, t) = self;
+        match span.position(predicate) {
+            Some(0) => Err(nom::Err::Error(E::from_error_kind(*self.clone(), e))),
+            Some(n) => Ok(self.take_split(n)),
+            None => Err(nom::Err::Incomplete(nom::Needed::new(1))),
+        }
+    }
+
+    fn split_at_position1_complete<P, E: nom::error::ParseError<Self>>(
+        &self,
+        predicate: P,
+        e: nom::error::ErrorKind,
+      ) -> IResult<Self, Self, E>
+      where
+        P: Fn(Self::Item) -> bool 
+    {
+        let SpanWith(span, t) = self;
+        match span.position(predicate) {
+            Some(0) => Err(nom::Err::Error(E::from_error_kind(*self.clone(), e))),
+            Some(n) => Ok(self.take_split(n)),
+            None => if span.input_len() == 0 {
+                Err(nom::Err::Error(E::from_error_kind(*self.clone(), e)))
+            } else {
+                Ok(self.take_split(self.input_len()))
+            }
+        }
+    }
+}
+
+impl<'a, 'b, T> nom::Offset for SpanWith<'a, 'b, T> {
+    fn offset(&self, second: &Self) -> usize {
+        let SpanWith(span, _) = self;
+        let SpanWith(span2, _) = second;
+        span.offset(span2)
+    }
+}
+
+impl<'a, 'b, T, R> nom::Slice<R> for SpanWith<'a, 'b, T> 
+where &'a str: nom::Slice<R>
+{
+    fn slice(&self, range: R) -> Self {
+        let SpanWith(span, t) = self;
+        let span_result = span.slice(range);
+        SpanWith(span_result, t)
+    }
+}
+
+impl<'a, 'b, T, B> nom::Compare<B> for SpanWith<'a, 'b, T> 
+where Span<'a>: nom::Compare<B>{
+    fn compare(&self, t: B) -> nom::CompareResult {
+        let SpanWith(span, _) = self;
+        span.compare(t)
+    }
+    fn compare_no_case(&self, t: B) -> nom::CompareResult {
+        let SpanWith(span, _) = self;
+        span.compare(t)
+    }
+}
+
+pub(crate) fn expect<'a, 'b, F, T>(parser: F, error_msg: &'static str) -> impl Fn(SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Option<T>> 
+where
+'a: 'b,
+F: Fn(SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, T>,
+{
+    move |source| 
+    {
+        let source_span = source.0.clone();
+        match parser(source) {
+            Ok((rest, out)) => Ok((rest, Some(out))),
+            Err(nom::Err::Error(nom::error::Error{input,code: _})) 
+            | Err(nom::Err::Failure(nom::error::Error{input,code: _})) => {
+                let err = Error{source: source_span, location: input.0, msg: error_msg};
+                let SpanWith(_, errs) = input;
+                errs.borrow_mut().push(err);
+                Ok((input, None))
+            },
+            Err(err) => Err(err)
+        }
+    }
+}
+
+fn match_token<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>, matched: &'static str, token: Token<'a>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
     let (rest, _) = terminated(tag(matched), peek(not(alphanumeric1)))(source)?;
     Ok((rest, token))
 }
 
-fn operator(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    let (rest, op) = operator_string(source)?;
+fn operator<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
+    let (rest, SpanWith(op, _)) = operator_string(source)?;
     if op.fragment().eq(&"=") { return Ok((rest, Token::Equal))}
     if op.fragment().eq(&"->") { return Ok((rest, Token::Arrow))}
     if op.fragment().eq(&"=>") { return Ok((rest, Token::WideArrow))}
@@ -157,43 +327,43 @@ fn operator(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     else {Ok((rest, Token::Operator(op)))}
 }
 
-fn operator_string(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+fn operator_string<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, SpanWith<'a, 'b, Vec<Error<'a>>>> {
     recognize(many1(one_of("~!$^%*-+=/?><")))(source)
 }
 
-pub fn operator_name(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+pub fn operator_name<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, SpanWith<'a, 'b, Vec<Error<'a>>>> {
     recognize(delimited(tag("("), operator_string, tag(")")))(source)
 }
 
-fn char_or_type(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn char_or_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
     let x = recognize(alt((none_of("\\\'"), preceded(tag("\\"), one_of("0'rtn\\")), preceded(tag("x"), preceded(one_of("01234567"), one_of("0123456789abcdefABCDEF"))))))(source);
     match x {
-        Ok((rest, y)) => Ok((rest, Token::Char(y))),
+        Ok((rest, SpanWith(y, _))) => Ok((rest, Token::Char(y))),
         Err(e) => {
             let y = recognize(preceded(tag("'"), identifier))(source);
 
             match y {
-                Ok((rest, ty)) => Ok((rest, Token::TypeVar(ty))),
+                Ok((rest, SpanWith(ty, _))) => Ok((rest, Token::TypeVar(ty))),
                 Err(_) => Err(e)
             }
         }
     }
 }
 
-fn string(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    let (rest, str) = recognize(delimited(tag("\""), many0(alt((none_of("\\\""), preceded(tag("\\"), one_of("\"\\ntr'0"))))), tag("\"")))(source)?;
+fn string<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
+    let (rest, SpanWith(str, _)) = recognize(delimited(tag("\""), many0(alt((none_of("\\\""), preceded(tag("\\"), one_of("\"\\ntr'0"))))), tag("\"")))(source)?;
     Ok((rest, Token::String(str)))
 }
 
-fn line_comment(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+fn line_comment<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, SpanWith<'a, 'b, Vec<Error<'a>>>> {
     recognize(preceded(tag("//"), not_line_ending))(source)
 }
 
-fn multiline_comment(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+fn multiline_comment<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, SpanWith<'a, 'b, Vec<Error<'a>>>> {
     recognize(delimited(tag("/*"), opt(many0(alt((recognize(multiline_comment), recognize(preceded(not(peek(tag("*/"))), anychar)))))), tag("*/")))(source)
 }
 
-fn keyword(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn keyword<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
     let (rest, c) = anychar(source)?;
     match c
     {
@@ -282,68 +452,70 @@ fn keyword(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     }
 }
 
-pub fn skip_whitespace(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+pub fn skip_whitespace<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, SpanWith<'a, 'b, Vec<Error<'a>>>> {
     alt((line_comment, multiline_comment, multispace0))(source)
 }
 
-fn identifier(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn identifier<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
     let x = keyword(source);
     match x {
-        Ok(y) => Ok(y),
         Err(_) =>
         {
             let (rest, id) = identifier_string(source)?;
-            Ok((rest, Token::Identifier(id)))
-        }
+            let SpanWith(span, _) = id;
+            Ok((rest, Token::Identifier(span)))
+        },
+        res => res
     }
 }
 
-pub fn identifier_string(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+pub fn identifier_string<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, SpanWith<'a, 'b, Vec<Error<'a>>>> {
     recognize(terminated(alt((alpha1, tag("_"))), many0(alt((alphanumeric1, tag("_"))))))(source)
 }
 
-fn lifetime(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn lifetime<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
     let (rest, lifetime) =  recognize(preceded(tag("#"), identifier))(source)?;
-    Ok((rest, Token::Lifetime(lifetime)))
+    let SpanWith(span, _) = lifetime;
+    Ok((rest, Token::Lifetime(span)))
 }
 
-fn number(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn number<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
    alt((float, hex_int, bin_int, oct_int, integer))(source)
 }
 
-fn float(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    let(rest, num) = recognize(preceded(opt(tag("-")),tuple((many1(alt((digit1,tag("_")))), tag("."), many1(alt((digit1,tag("_"))))))))(source)?;
+fn float<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
+    let(rest, SpanWith(num, _)) = recognize(preceded(opt(tag("-")),tuple((many1(alt((digit1,tag("_")))), tag("."), many1(alt((digit1,tag("_"))))))))(source)?;
     Ok((rest, Token::Float(num)))
 }
 
-pub fn hex_int(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    let (rest, num) = recognize(preceded(opt(tag("-")),pair(alt((tag("0x"), tag("0X"))), many1(alt((hex_digit1,tag("_")))))))(source)?;
+pub fn hex_int<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
+    let (rest, SpanWith(num, _)) = recognize(preceded(opt(tag("-")),pair(alt((tag("0x"), tag("0X"))), many1(alt((hex_digit1,tag("_")))))))(source)?;
     Ok((rest, Token::HexInt(num)))
 }
 
-pub fn bin_int(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    let (rest, num) = recognize(preceded(opt(tag("-")),pair(alt((tag("0b"), tag("0B"))), many1(alt((alt((tag("0"), tag("1"))),tag("_")))))))(source)?;
+pub fn bin_int<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
+    let (rest, SpanWith(num, _)) = recognize(preceded(opt(tag("-")),pair(alt((tag("0b"), tag("0B"))), many1(alt((alt((tag("0"), tag("1"))),tag("_")))))))(source)?;
     Ok((rest, Token::BinInt(num)))
 }
 
-pub fn oct_int(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    let (rest, num) = recognize(preceded(opt(tag("-")),pair(tag("0"), many1(alt((oct_digit1,tag("_")))))))(source)?;
+pub fn oct_int<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
+    let (rest, SpanWith(num, _)) = recognize(preceded(opt(tag("-")),pair(tag("0"), many1(alt((oct_digit1,tag("_")))))))(source)?;
     Ok((rest, Token::OctInt(num)))
 }
 
-pub fn integer(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    let (rest, num) = recognize(preceded(opt(tag("-")),alt((digit1,tag("_")))))(source)?;
+pub fn integer<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
+    let (rest, SpanWith(num, _)) = recognize(preceded(opt(tag("-")),alt((digit1,tag("_")))))(source)?;
     Ok((rest, Token::Int(num)))
 }
 
-fn colon_or_path(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn colon_or_path<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
     alt((value(Token::Path, tag("::")), value(Token::Colon, tag(":"))))(source)
 }
 
-pub fn scan_token(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+pub fn scan_token<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
     let (rest, _) = skip_whitespace(source)?;
-    let end: IResult<Span, Span> = eof(rest);
-    if end.is_ok() {return Ok((LocatedSpan::new(""),Token::EndOfFile));};
+    let end: IResult<_, _, nom::error::Error<_>> = eof(rest);
+    if let Ok((x, _)) = end {return Ok((x,Token::EndOfFile));};
     let id = identifier(rest);
     if id.is_ok() { return id;}
     let num = number(rest);
@@ -354,7 +526,7 @@ pub fn scan_token(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     match c {
         '(' => {
             let op_id = operator_name(rest);
-            if op_id.is_ok() {let (rest, op) = op_id.unwrap(); Ok((rest, Token::Identifier(op)))}
+            if op_id.is_ok() {let (rest, SpanWith(op, _)) = op_id.unwrap(); Ok((rest, Token::Identifier(op)))}
             else {Ok((rem, Token::Paren))}
         },
         ')' => Ok((rem, Token::CloseParen)),
@@ -371,6 +543,6 @@ pub fn scan_token(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
         '"' => string(rest),
         '\'' => char_or_type(rest),
         '#' => lifetime(rest),
-        _ => (fail::<Span, Token, ErrorTree<Span>>.context("Cannot identify token!")).parse(rest)
+        _ => fail(rest)
     }
 }

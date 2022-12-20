@@ -7,11 +7,12 @@ use nom::{
 };
 use nom_locate::LocatedSpan;
 use nom_supreme::{
-    error::{ErrorTree},
     final_parser::final_parser
 };
 use crate::lexer::{
-    Token, hex_int, bin_int, oct_int, integer
+    Token, hex_int, bin_int, oct_int, integer,
+    Error,
+    SpanWith
 };
 
 type Span<'a> = LocatedSpan<&'a str>;
@@ -110,16 +111,16 @@ pub enum Decl<'a> {
     Expr(Box<Expr<'a>>),
 }
 
-pub fn parse(source: &str) -> Result<Vec<Box<Decl>>, ErrorTree<Span>> {
+pub fn parse<'a, 'b>(source: &'a str) -> Result<Vec<Box<Decl<'a>>>, nom::error::Error<SpanWith<'a, 'b, Vec<Error<'a>>>>> {
     let source_span = Span::new(source);
-    let result: Result<Vec<Box<Decl>>, ErrorTree<Span>> = final_parser(many1(declaration))(source_span);
+    let result = final_parser(many1(declaration))(source_span);
     match result {
         Ok(expr) => {/*println!("{:?}", expr);*/ Ok(expr)},
         e => e
     }
 }
 
-fn token<'a>(t: Token<'a>) -> impl Fn(Span<'a>) -> IResult<Span<'a>, Token<'a>, ErrorTree<Span<'a>>> {
+fn token<'a, 'b>(t: Token<'static>) -> impl Fn(SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> where 'a: 'b {
     let discriminant = std::mem::discriminant(&t);
     move |source| {
         let (rest, token) = crate::lexer::scan_token(source)?;
@@ -128,8 +129,8 @@ fn token<'a>(t: Token<'a>) -> impl Fn(Span<'a>) -> IResult<Span<'a>, Token<'a>, 
     }
 }
 
-fn expression(scrutinee: bool) -> impl Fn(Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>>{
-    move |source| {
+fn expression<'a, 'b>(scrutinee: bool) -> impl Fn(SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> where 'a: 'b{
+    move |source| { 
         let (rest, token) = crate::lexer::scan_token(source)?;
         let (string, expr) = match token {
             Token::If => if_(source)?,
@@ -157,7 +158,7 @@ fn expression(scrutinee: bool) -> impl Fn(Span) -> IResult<Span, Box<Expr>, Erro
     }
 }
 
-fn right_expression<'a>(expr: Box<Expr<'a>>, source: Span<'a>, scrutinee: bool) -> IResult <Span<'a>, Box<Expr<'a>>, ErrorTree<Span<'a>>> {
+fn right_expression<'a, 'b>(expr: Box<Expr<'a>>, source: SpanWith<'a, 'b, Vec<Error<'a>>>, scrutinee: bool) -> IResult <SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (_, token) = crate::lexer::scan_token(source)?;
 
     let (rest, lr) = match token {
@@ -188,145 +189,145 @@ fn right_expression<'a>(expr: Box<Expr<'a>>, source: Span<'a>, scrutinee: bool) 
     }
 }
 
-fn reference(source:Span) -> IResult<Span, Box<LRExpr>, ErrorTree<Span>>{
+fn reference<'a, 'b>(source:SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<LRExpr<'a>>>{
     let (rest, _) = token(Token::Reference)(source)?;
     let (rest, x) = opt(token(Token::Mutable))(rest)?;
     let is_mut = x.is_some();
     Ok((rest, Box::new(LRExpr::Reference(is_mut))))
 }
 
-fn dereference(source: Span) -> IResult<Span, Box<LRExpr>, ErrorTree<Span>> {
+fn dereference<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<LRExpr<'a>>> {
     let (rest, _) = token(Token::Dereference)(source)?;
     Ok((rest, Box::new(LRExpr::Dereference)))
 }
 
-fn binary(scrutinee: bool) -> impl Fn(Span) -> IResult<Span, Box<LRExpr>, ErrorTree<Span>> {
+fn binary<'a, 'b>(scrutinee: bool) -> impl Fn(SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<LRExpr<'a>>> where 'a: 'b {
     move |source| {
         let (rest, (op, expr)) = pair(operator, expression(scrutinee))(source)?;
         Ok((rest, Box::new(LRExpr::Binary(op, expr))))
     }
 }
 
-fn assignment(scrutinee: bool) -> impl Fn(Span) -> IResult<Span, Box<LRExpr>, ErrorTree<Span>> {
+fn assignment<'a, 'b>(scrutinee: bool) -> impl Fn(SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<LRExpr<'a>>> where 'a: 'b {
     move |source| {
         let (rest, value) = preceded(token(Token::Equal), expression(scrutinee))(source)?;
         Ok((rest, Box::new(LRExpr::Assignment(value))))
     }
 }
 
-fn field_call(scrutinee: bool) -> impl Fn(Span) -> IResult<Span, Box<LRExpr>, ErrorTree<Span>> {
+fn field_call<'a, 'b>(scrutinee: bool) -> impl Fn(SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<LRExpr<'a>>> where 'a: 'b {
     move |source| {
         let (rest, expr) = preceded(token(Token::Dot), expression(scrutinee))(source)?;
         Ok((rest, Box::new(LRExpr::FieldCall(expr))))
     }
 }
 
-fn postfix_operator(source: Span) -> IResult<Span, Box<LRExpr>, ErrorTree<Span>> {
+fn postfix_operator<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<LRExpr<'a>>> {
     let (rest, op) = operator(source)?;
     Ok((rest, Box::new(LRExpr::Postfix(op))))
 }
 
-fn function_call(source: Span) -> IResult<Span, Box<LRExpr>, ErrorTree<Span>> {
+fn function_call<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<LRExpr<'a>>> {
     let (rest, list) = delimited(token(Token::Paren), expr_list, token(Token::CloseParen))(source)?;
     Ok((rest, Box::new(LRExpr::FunctionCall(list))))
 }
 
-fn array_index(source: Span) -> IResult<Span, Box<LRExpr>, ErrorTree<Span>> {
+fn array_index<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<LRExpr<'a>>> {
     let (rest, expr) = delimited(token(Token::Bracket), expression(false), token(Token::CloseBracket))(source)?;
     Ok((rest, Box::new(LRExpr::ArrayIndex(expr))))
 }
 
-fn struct_init(source: Span) -> IResult<Span, Box<LRExpr>, ErrorTree<Span>> {
+fn struct_init<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<LRExpr<'a>>> {
     let (rest, list) = delimited(token(Token::Brace), expr_list, token(Token::CloseBrace))(source)?;
     Ok((rest, Box::new(LRExpr::StructInit(list))))
 }
-fn expr_list(source: Span) -> IResult<Span, Vec<Box<Expr>>, ErrorTree<Span>> {
+fn expr_list<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Vec<Box<Expr<'a>>>> {
     terminated(separated_list0(token(Token::Comma), expression(false)), opt(token(Token::Comma)))(source)
 }
 
-fn array_constructor(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn array_constructor<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, values) = delimited(token(Token::Bracket), expr_list, token(Token::CloseBracket))(source)?;
     Ok((rest, Box::new(Expr::ArrayConstructor(values))))
 }
 
-fn tuples(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn tuples<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, list) = delimited(token(Token::Paren), expr_list, token(Token::CloseParen))(source)?;
     Ok((rest, Box::new(Expr::Tuple(list))))
 }
 
-fn unsafe_(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn unsafe_<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, expr) = preceded(token(Token::Unsafe), expression(false))(source)?;
     Ok((rest, Box::new(Expr::Unsafe(expr))))
 }
 
-fn if_(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn if_<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, ((cond, true_branch), else_branch)) = pair(pair(preceded(token(Token::If), expression(true)), block), opt(preceded(token(Token::Else), block)))(source)?;
     Ok((rest, Box::new(Expr::If{cond: cond, true_branch: true_branch, else_branch: else_branch})))
 }
 
-fn while_(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn while_<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, (cond, loop_)) = pair(preceded(token(Token::While), expression(true)), block)(source)?;
     Ok((rest, Box::new(Expr::While{cond: cond, loop_: loop_})))
 }
 
-fn loop_(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn loop_<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, loop_) = preceded(token(Token::Loop), block)(source)?;
     Ok((rest, Box::new(Expr::Loop{loop_: loop_})))
 }
 
-fn case(source: Span) -> IResult<Span, Box<CaseExpr>, ErrorTree<Span>> {
+fn case<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<CaseExpr<'a>>> {
     let (rest, (pattern, expr)) = preceded(token(Token::Case), pair(terminated(pattern, token(Token::Colon)), expression(false)))(source)?;
     Ok((rest, Box::new(CaseExpr(pattern, expr))))
 }
 
-fn case_block(source: Span) -> IResult<Span, Vec<Box<CaseExpr>>, ErrorTree<Span>> {
+fn case_block<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Vec<Box<CaseExpr<'a>>>> {
     delimited(token(Token::Brace), terminated(separated_list0(token(Token::Comma), case), opt(token(Token::Comma))), token(Token::CloseBrace))(source)
 }
 
-fn switch_(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn switch_<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let(rest, (expr, cases)) = pair(preceded(token(Token::Switch), expression(true)), case_block)(source)?;
     Ok((rest, Box::new(Expr::Switch{expr: expr, arms: cases})))
 }
 
-fn operator(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn operator<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Token<'a>> {
     token(Token::Operator(Span::new("")))(source)
 }
 
-fn return_expr(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn return_expr<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, expr) = preceded(token(Token::Return), expression(false))(source)?;
     Ok((rest, Box::new(Expr::Return(expr))))
 }
 
-fn block(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn block<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, (list, ret)) = delimited(token(Token::Brace), pair(many0(declaration), opt(expression(false))), token(Token::CloseBrace))(source)?;
     Ok((rest, Box::new(Expr::Block{declarations: list, ret})))
 }
 
-fn function_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn function_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, (name, args, return_type, body)) = preceded(token(Token::Fn), tuple((token(Token::Identifier(Span::new(""))), delimited(token(Token::Paren), param_list, token(Token::CloseParen)), opt(preceded(token(Token::Arrow), type_)), block) ))(source)?;
     Ok((rest, Box::new(Decl::Function{name: name.as_span(), args: args, return_type: return_type, body: body})))
 }
 
-fn single_constraint(source: Span) -> IResult<Span, Vec<Box<Ty>>, ErrorTree<Span>> {
+fn single_constraint<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Vec<Box<Ty<'a>>>> {
     let (rest, constraint) = array_type(source)?;
     Ok((rest, vec![constraint]))
 }
 
-fn constraints(source: Span) -> IResult<Span, Vec<Box<Ty>>, ErrorTree<Span>> {
+fn constraints<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Vec<Box<Ty<'a>>>> {
     alt((single_constraint,delimited(token(Token::Paren), separated_list1(token(Token::Comma), array_type), token(Token::CloseParen))))(source)
 }
 
-fn class_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn class_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, (constraints, class, types, body)) = preceded(token(Token::Class), tuple((opt(terminated(constraints, token(Token::WideArrow))), token(Token::Identifier(Span::new(""))), many1(var_type), block)))(source)?;
     Ok((rest, Box::new(Decl::Class{class: class, types: types, constraints: constraints, body: body})))
 }
 
-fn impl_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn impl_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, (constraints, class, types, body)) = preceded(token(Token::Implement), tuple((opt(terminated(constraints, token(Token::WideArrow))), token(Token::Identifier(Span::new(""))), many1(type_), block)))(source)?;
     Ok((rest, Box::new(Decl::Implementation{class: class, types: types, constraints: constraints, body: body})))
 }
 
-fn declaration(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn declaration<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (_, token) = crate::lexer::scan_token(source)?;
 
     match token {
@@ -345,27 +346,27 @@ fn declaration(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
     }
 }
 
-fn prefix_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn prefix_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, (op, prec)) = preceded(token(Token::Prefix), pair(token(Token::Operator(Span::new(""))), token(Token::Int(Span::new("")))))(source)?;
     Ok((rest, Box::new(Decl::Operator{name: op, fixity: Fixity::Prefix, precedence: prec})))
 }
 
-fn infix_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn infix_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, (op, prec)) = preceded(token(Token::Infix), pair(token(Token::Operator(Span::new(""))), token(Token::Int(Span::new("")))))(source)?;
     Ok((rest, Box::new(Decl::Operator{name: op, fixity: Fixity::Infix, precedence: prec})))
 }
 
-fn postfix_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn postfix_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, (op, prec)) = preceded(token(Token::Postfix), pair(token(Token::Operator(Span::new(""))), token(Token::Int(Span::new("")))))(source)?;
     Ok((rest, Box::new(Decl::Operator{name: op, fixity: Fixity::Postfix, precedence: prec})))
 }
 
-fn expr_decl(source: Span) ->IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn expr_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) ->IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, expr) = terminated(expression(false), token(Token::Semicolon))(source)?;
     Ok((rest, Box::new(Decl::Expr(expr))))
 }
 
-fn variable_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn variable_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, (mutable, pattern)) = preceded(token(Token::Let), pair(opt(token(Token::Mutable)), pattern))(source)?;
     let (rest, type_) = 
     if let (rest, Some(_)) = opt(token(Token::Colon))(rest)? {
@@ -382,83 +383,83 @@ fn variable_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
     Ok((rest, Box::new(Decl::Variable{mutable: mutable.is_some(), pattern: pattern, type_: type_, value: value})))
 }
 
-fn struct_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn struct_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, (name, members)) = preceded(token(Token::Struct), pair(applied_type,delimited(token(Token::Brace), param_list, token(Token::Brace))))(source)?;
     Ok((rest, Box::new(Decl::Struct{name, members})))
 }
 
-fn variant(source: Span) -> IResult<Span, Param, ErrorTree<Span>> {
+fn variant<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Param<'a>> {
     let (rest, (name, type_)) = pair(identifier_pattern, opt(alt((tuple_type, delimited(token(Token::Paren), type_, token(Token::CloseParen))))))(source)?;
     Ok((rest, Param{name, type_}))
 }
 
-fn variant_list(source: Span) -> IResult<Span, Vec<Param>, ErrorTree<Span>> {
+fn variant_list<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Vec<Param<'a>>> {
     separated_list0(token(Token::Comma), variant)(source)
 }
 
-fn union_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn union_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, (name, variants)) = preceded(token(Token::Union), pair(applied_type, delimited(token(Token::Brace), variant_list, token(Token::CloseBrace))))(source)?;
     Ok((rest, Box::new(Decl::Union{name, variants})))
 }
 
-fn module_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn module_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, (name, body)) = preceded(token(Token::Module), pair(token(Token::Identifier(Span::new(""))), block))(source)?;
     Ok((rest, Box::new(Decl::Module{name, body})))
 }
 
-fn newtype_decl(source: Span) -> IResult<Span, Box<Decl>, ErrorTree<Span>> {
+fn newtype_decl<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Decl<'a>>> {
     let (rest, (defined, replacing)) = preceded(token(Token::NewType), pair(applied_type, preceded(token(Token::Equal), type_)))(source)?;
     Ok((rest, Box::new(Decl::NewType{defined, replacing})))
 }
 
-fn basic_array_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn basic_array_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     let (rest, size) = delimited(token(Token::Bracket), opt(alt((integer, hex_int, oct_int, bin_int))), token(Token::CloseBracket))(source)?;
     Ok((rest, Box::new(Ty::ArrayBasic(size))))
 }
 
-fn basic_unit_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn basic_unit_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     let (rest, _) = pair(token(Token::Paren), token(Token::CloseParen))(source)?;
     Ok((rest, Box::new(Ty::Unit)))
 }
 
-fn basic_ref_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn basic_ref_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     let(rest, _) = token(Token::Reference)(source)?;
     Ok((rest, Box::new(Ty::Reference)))
 }
 
-fn basic_pointer_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn basic_pointer_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     let(rest, _) = token(Token::Dereference)(source)?;
     Ok((rest, Box::new(Ty::Pointer)))
 }
 
-fn basic_type_string(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn basic_type_string<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     let (rest, ty) = token(Token::Identifier(Span::new("")))(source)?;
     Ok((rest, Box::new(Ty::Basic(ty))))
 }
 
-fn basic_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn basic_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     alt((basic_array_type, basic_unit_type, basic_ref_type, basic_pointer_type, basic_type_string))(source)
 }
 
-fn var_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn var_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     let (rest, ty) = token(Token::TypeVar(Span::new("")))(source)?;
     Ok((rest, Box::new(Ty::Var(ty))))
 }
 
-fn var_or_basic_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn var_or_basic_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     alt((var_type, basic_type))(source)
 }
 
-fn param(source: Span) -> IResult<Span, Param, ErrorTree<Span>> {
+fn param<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Param<'a>> {
     let (rest, (name, type_)) = pair(pattern, opt(preceded(token(Token::Colon), type_)))(source)?;
     Ok((rest, Param{name: name, type_: type_}))
 }
 
-fn param_list(source: Span) -> IResult<Span, Vec<Param>, ErrorTree<Span>> {
+fn param_list<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Vec<Param<'a>>> {
     terminated(separated_list0(token(Token::Comma), param), opt(token(Token::Comma)))(source)
 }
 
-fn applied_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn applied_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     let (rest, (app, vars)) = pair(var_or_basic_type, many0(tuple_type))(source)?;
     if vars.is_empty() {
         Ok((rest, app))
@@ -468,7 +469,7 @@ fn applied_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
     }
 }
 
-fn array_type_helper(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn array_type_helper<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     let (rest, (ty, size)) = delimited(
         token(Token::Bracket),
         pair(type_,
@@ -477,28 +478,28 @@ fn array_type_helper(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
     Ok((rest, Box::new(Ty::Array(ty, size))))
 }
 
-fn array_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn array_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     alt((array_type_helper, applied_type))(source)
 }
 
-fn parenthesized_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn parenthesized_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     alt((delimited(token(Token::Paren), type_, token(Token::Paren)), array_type))(source)
 }
 
-fn type_list(source: Span) -> IResult<Span, Vec<Box<Ty>>, ErrorTree<Span>> {
+fn type_list<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Vec<Box<Ty<'a>>>> {
     terminated(separated_list1(token(Token::Comma), type_), opt(token(Token::Comma)))(source)
 }
 
-fn tuple_type_helper(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn tuple_type_helper<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     let (rest, types) = delimited(token(Token::Paren), type_list, token(Token::CloseParen))(source)?;
     Ok((rest, Box::new(Ty::Tuple(types))))
 }
 
-fn tuple_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn tuple_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     alt((tuple_type_helper, parenthesized_type))(source)
 }
 
-fn function_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn function_type<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     let (rest, (ty1, ty2)) = pair(array_type, opt(preceded(token(Token::Arrow), type_)))(source)?;
     match ty2 {
         None => Ok((rest, ty1)),
@@ -506,20 +507,20 @@ fn function_type(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
     }
 }
 
-fn type_(source: Span) -> IResult<Span, Box<Ty>, ErrorTree<Span>> {
+fn type_<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Ty<'a>>> {
     function_type(source)
 }
 
-fn pattern(source: Span) -> IResult<Span, Box<Pattern>, ErrorTree<Span>> {
+fn pattern<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Pattern<'a>>> {
     alt((placeholder_pattern, array_pattern, tuple_pattern, literal_pattern, identifier_pattern))(source)
 }
 
-fn literal_pattern(source: Span) -> IResult<Span, Box<Pattern>, ErrorTree<Span>> {
+fn literal_pattern<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Pattern<'a>>> {
     let (rest, token) = alt((token(Token::Float(Span::new(""))), token(Token::Int(Span::new(""))), token(Token::HexInt(Span::new(""))), token(Token::BinInt(Span::new(""))), token(Token::OctInt(Span::new(""))), token(Token::Char(Span::new(""))), token(Token::String(Span::new("")))))(source)?;
     Ok((rest, Box::new(Pattern::Literal(token))))
 }
 
-fn identifier_pattern(source: Span) -> IResult<Span, Box<Pattern>, ErrorTree<Span>> {
+fn identifier_pattern<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Pattern<'a>>> {
     let (rest, (id, args)) = pair(token(Token::Identifier(Span::new(""))), opt(delimited(token(Token::Paren), pattern_list, token(Token::CloseParen))))(source)?;
     match args {
         None => Ok((rest, Box::new(Pattern::Identifier(id.as_span())))),
@@ -527,7 +528,7 @@ fn identifier_pattern(source: Span) -> IResult<Span, Box<Pattern>, ErrorTree<Spa
     }
 }
 
-pub fn identifiers_from_pattern<'a>(pattern: &Pattern<'a>) -> Vec<Span<'a>> {
+pub fn identifiers_from_pattern<'a, 'b>(pattern: &Pattern<'a>) -> Vec<Span<'a>> {
     match pattern {
         Pattern::Identifier(string) => vec![*string],
         Pattern::Literal(_)
@@ -540,49 +541,49 @@ pub fn identifiers_from_pattern<'a>(pattern: &Pattern<'a>) -> Vec<Span<'a>> {
     }
 }
 
-fn array_pattern(source: Span) ->IResult<Span, Box<Pattern>, ErrorTree<Span>> {
+fn array_pattern<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) ->IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Pattern<'a>>> {
     let (rest, list) = delimited(token(Token::Bracket), pattern_list, token(Token::CloseBracket))(source)?;
     Ok((rest, Box::new(Pattern::Array(list))))
 }
 
-fn placeholder_pattern(source: Span) -> IResult<Span, Box<Pattern>, ErrorTree<Span>> {
+fn placeholder_pattern<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Pattern<'a>>> {
     let (rest, _) = token(Token::Placeholder)(source)?;
     Ok((rest, Box::new(Pattern::Placeholder)))
 }
 
-fn pattern_list(source: Span) -> IResult<Span, Vec<Box<Pattern>>, ErrorTree<Span>> {
+fn pattern_list<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Vec<Box<Pattern<'a>>>> {
     terminated(separated_list1(token(Token::Comma), pattern), opt(token(Token::Comma)))(source)
 }
 
-fn tuple_pattern(source: Span) -> IResult<Span, Box<Pattern>, ErrorTree<Span>> {
+fn tuple_pattern<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Pattern<'a>>> {
     let (rest, patterns) = delimited(token(Token::Paren), pattern_list, token(Token::CloseParen))(source)?;
     Ok((rest, Box::new(Pattern::Tuple(patterns))))
 }
 
-fn parens(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>>{
+fn parens<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>>{
     Ok(delimited(token(Token::Paren), expression(false), token(Token::CloseParen))(source)?)
 }
 
-fn identifier(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn identifier<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, ident) = token(Token::Identifier(Span::new("")))(source)?;
     Ok((rest, Box::new(Expr::Identifier(ident))))
 }
 
-fn path(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn path<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, (id, path)) = pair(identifier, preceded(token(Token::Path), expression(false)))(source)?;
     Ok((rest, Box::new(Expr::Path{identifier: id, expr: path})))
 }
 
-fn identifier_or_path(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn identifier_or_path<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     alt((path, identifier))(source)
 }
 
-fn literal(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn literal<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, token) = alt((token(Token::Float(Span::new(""))), token(Token::Int(Span::new(""))), token(Token::HexInt(Span::new(""))), token(Token::BinInt(Span::new(""))), token(Token::OctInt(Span::new(""))), token(Token::Char(Span::new(""))), token(Token::String(Span::new("")))))(source)?;
     Ok((rest, Box::new(Expr::Literal(token))))
 }
 
-fn prefix_operator(source: Span) -> IResult<Span, Box<Expr>, ErrorTree<Span>> {
+fn prefix_operator<'a, 'b>(source: SpanWith<'a, 'b, Vec<Error<'a>>>) -> IResult<SpanWith<'a, 'b, Vec<Error<'a>>>, Box<Expr<'a>>> {
     let (rest, (op, expr)) = pair(operator, expression(false))(source)?;
     Ok((rest, Box::new(Expr::Prefix{op: op, expr: expr})))
 }

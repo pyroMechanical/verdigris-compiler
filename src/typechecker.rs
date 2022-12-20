@@ -60,7 +60,7 @@ fn find_in_scope<'a, 'b>(identifier: &str, scope: &'b Node<Scope<'a, 'b>>, names
     }
 }
 
-pub fn typecheck(source: &str) -> Result<(), ErrorTree<LocatedSpan<&str>>> {
+pub fn typecheck(source: &str) -> Result<(), nom::error::Error> {
     let result = crate::parser::parse(source)?;
     let mut scope_stack = Node::new(None, Scope::new());
     for  decl in & result {
