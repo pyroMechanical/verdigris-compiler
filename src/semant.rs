@@ -1,7 +1,6 @@
-use nom_locate::LocatedSpan;
-use nom_supreme::error::ErrorTree;
+use crate::SpanWith;
 
-pub fn analyze(source: &str) -> Result<(), ErrorTree<LocatedSpan<&str>>> {
+pub fn analyze(source: SpanWith) -> Result<(), nom::error::Error<SpanWith>> {
     let result = crate::typechecker::typecheck(source);
     //println!("semantic analysis...");
     result

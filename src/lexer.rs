@@ -1,16 +1,13 @@
 use nom::{
     IResult,
-    Parser,
     multi::{many0, many1},
     branch::alt,
     character::complete::{anychar, alpha1, alphanumeric1, multispace0, one_of, none_of, digit1, hex_digit1, oct_digit1, not_line_ending},
     combinator::{fail, recognize, peek, not, opt, eof, value},
     sequence::{delimited, preceded, terminated, tuple, pair}
 };
-use nom_locate::LocatedSpan;
-use nom_supreme::{error::{ErrorTree}, parser_ext::ParserExt, tag::complete::tag};
-
-type Span<'a> = LocatedSpan<&'a str>;
+use nom_supreme::tag::complete::tag;
+use crate::{Span, SpanWith, to_span};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token<'a> {
@@ -94,7 +91,7 @@ impl<'b> Token<'b> {
             Token::Semicolon => Span::new(";"),
             Token::Reference => Span::new("&"),
             Token::Dereference => Span::new("@"),
-            Token::_TypeOwned(string) => unimplemented!(),
+            Token::_TypeOwned(_) => unimplemented!(),
             Token::Let => Span::new("let"),
             Token::Fn => Span::new("fn"),
             Token::Unsafe => Span::new("unsafe"),
@@ -143,57 +140,57 @@ impl<'b> Token<'b> {
     }
 }
 
-fn match_token<'a>(source: Span<'a>, matched: &'static str, token: Token<'a>) -> IResult<Span<'a>, Token<'a>, ErrorTree<Span<'a>>> {
+fn match_token<'a>(source: SpanWith<'a>, matched: &'static str, token: Token<'a>) -> IResult<SpanWith<'a>, Token<'a>> {
     let (rest, _) = terminated(tag(matched), peek(not(alphanumeric1)))(source)?;
     Ok((rest, token))
 }
 
-fn operator(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn operator(source: SpanWith) -> IResult<SpanWith, Token> {
     let (rest, op) = operator_string(source)?;
     if op.fragment().eq(&"=") { return Ok((rest, Token::Equal))}
     if op.fragment().eq(&"->") { return Ok((rest, Token::Arrow))}
     if op.fragment().eq(&"=>") { return Ok((rest, Token::WideArrow))}
     
-    else {Ok((rest, Token::Operator(op)))}
+    else {Ok((rest, Token::Operator(to_span(op))))}
 }
 
-fn operator_string(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+fn operator_string(source: SpanWith) -> IResult<SpanWith, SpanWith> {
     recognize(many1(one_of("~!$^%*-+=/?><")))(source)
 }
 
-pub fn operator_name(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+pub fn operator_name(source: SpanWith) -> IResult<SpanWith, SpanWith> {
     recognize(delimited(tag("("), operator_string, tag(")")))(source)
 }
 
-fn char_or_type(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn char_or_type(source: SpanWith) -> IResult<SpanWith, Token> {
     let x = recognize(alt((none_of("\\\'"), preceded(tag("\\"), one_of("0'rtn\\")), preceded(tag("x"), preceded(one_of("01234567"), one_of("0123456789abcdefABCDEF"))))))(source);
     match x {
-        Ok((rest, y)) => Ok((rest, Token::Char(y))),
+        Ok((rest, y)) => Ok((rest, Token::Char(to_span(y)))),
         Err(e) => {
             let y = recognize(preceded(tag("'"), identifier))(source);
 
             match y {
-                Ok((rest, ty)) => Ok((rest, Token::TypeVar(ty))),
+                Ok((rest, ty)) => Ok((rest, Token::TypeVar(to_span(ty)))),
                 Err(_) => Err(e)
             }
         }
     }
 }
 
-fn string(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn string(source: SpanWith) -> IResult<SpanWith, Token> {
     let (rest, str) = recognize(delimited(tag("\""), many0(alt((none_of("\\\""), preceded(tag("\\"), one_of("\"\\ntr'0"))))), tag("\"")))(source)?;
-    Ok((rest, Token::String(str)))
+    Ok((rest, Token::String(to_span(str))))
 }
 
-fn line_comment(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+fn line_comment(source: SpanWith) -> IResult<SpanWith, SpanWith> {
     recognize(preceded(tag("//"), not_line_ending))(source)
 }
 
-fn multiline_comment(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+fn multiline_comment(source: SpanWith) -> IResult<SpanWith, SpanWith> {
     recognize(delimited(tag("/*"), opt(many0(alt((recognize(multiline_comment), recognize(preceded(not(peek(tag("*/"))), anychar)))))), tag("*/")))(source)
 }
 
-fn keyword(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn keyword(source: SpanWith) -> IResult<SpanWith, Token> {
     let (rest, c) = anychar(source)?;
     match c
     {
@@ -282,68 +279,68 @@ fn keyword(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     }
 }
 
-pub fn skip_whitespace(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+pub fn skip_whitespace(source: SpanWith) -> IResult<SpanWith, SpanWith> {
     alt((line_comment, multiline_comment, multispace0))(source)
 }
 
-fn identifier(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn identifier(source: SpanWith) -> IResult<SpanWith, Token> {
     let x = keyword(source);
     match x {
         Ok(y) => Ok(y),
         Err(_) =>
         {
             let (rest, id) = identifier_string(source)?;
-            Ok((rest, Token::Identifier(id)))
+            Ok((rest, Token::Identifier(to_span(id))))
         }
     }
 }
 
-pub fn identifier_string(source: Span) -> IResult<Span, Span, ErrorTree<Span>> {
+pub fn identifier_string(source: SpanWith) -> IResult<SpanWith, SpanWith> {
     recognize(terminated(alt((alpha1, tag("_"))), many0(alt((alphanumeric1, tag("_"))))))(source)
 }
 
-fn lifetime(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn lifetime(source: SpanWith) -> IResult<SpanWith, Token> {
     let (rest, lifetime) =  recognize(preceded(tag("#"), identifier))(source)?;
-    Ok((rest, Token::Lifetime(lifetime)))
+    Ok((rest, Token::Lifetime(to_span(lifetime))))
 }
 
-fn number(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn number(source: SpanWith) -> IResult<SpanWith, Token> {
    alt((float, hex_int, bin_int, oct_int, integer))(source)
 }
 
-fn float(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn float(source: SpanWith) -> IResult<SpanWith, Token> {
     let(rest, num) = recognize(preceded(opt(tag("-")),tuple((many1(alt((digit1,tag("_")))), tag("."), many1(alt((digit1,tag("_"))))))))(source)?;
-    Ok((rest, Token::Float(num)))
+    Ok((rest, Token::Float(to_span(num))))
 }
 
-pub fn hex_int(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+pub fn hex_int(source: SpanWith) -> IResult<SpanWith, Token> {
     let (rest, num) = recognize(preceded(opt(tag("-")),pair(alt((tag("0x"), tag("0X"))), many1(alt((hex_digit1,tag("_")))))))(source)?;
-    Ok((rest, Token::HexInt(num)))
+    Ok((rest, Token::HexInt(to_span(num))))
 }
 
-pub fn bin_int(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+pub fn bin_int(source: SpanWith) -> IResult<SpanWith, Token> {
     let (rest, num) = recognize(preceded(opt(tag("-")),pair(alt((tag("0b"), tag("0B"))), many1(alt((alt((tag("0"), tag("1"))),tag("_")))))))(source)?;
-    Ok((rest, Token::BinInt(num)))
+    Ok((rest, Token::BinInt(to_span(num))))
 }
 
-pub fn oct_int(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+pub fn oct_int(source: SpanWith) -> IResult<SpanWith, Token> {
     let (rest, num) = recognize(preceded(opt(tag("-")),pair(tag("0"), many1(alt((oct_digit1,tag("_")))))))(source)?;
-    Ok((rest, Token::OctInt(num)))
+    Ok((rest, Token::OctInt(to_span(num))))
 }
 
-pub fn integer(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+pub fn integer(source: SpanWith) -> IResult<SpanWith, Token> {
     let (rest, num) = recognize(preceded(opt(tag("-")),alt((digit1,tag("_")))))(source)?;
-    Ok((rest, Token::Int(num)))
+    Ok((rest, Token::Int(to_span(num))))
 }
 
-fn colon_or_path(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+fn colon_or_path(source: SpanWith) -> IResult<SpanWith, Token> {
     alt((value(Token::Path, tag("::")), value(Token::Colon, tag(":"))))(source)
 }
 
-pub fn scan_token(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+pub fn scan_token(source: SpanWith) -> IResult<SpanWith, Token> {
     let (rest, _) = skip_whitespace(source)?;
-    let end: IResult<Span, Span> = eof(rest);
-    if end.is_ok() {return Ok((LocatedSpan::new(""),Token::EndOfFile));};
+    let end: IResult<SpanWith, SpanWith, nom::error::Error<SpanWith>> = eof(rest);
+    if let Ok((rest, _)) = end {return Ok((rest,Token::EndOfFile));};
     let id = identifier(rest);
     if id.is_ok() { return id;}
     let num = number(rest);
@@ -354,7 +351,7 @@ pub fn scan_token(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     match c {
         '(' => {
             let op_id = operator_name(rest);
-            if op_id.is_ok() {let (rest, op) = op_id.unwrap(); Ok((rest, Token::Identifier(op)))}
+            if let Ok((rest, op)) = op_id { Ok((rest, Token::Identifier(to_span(op))))}
             else {Ok((rem, Token::Paren))}
         },
         ')' => Ok((rem, Token::CloseParen)),
@@ -371,6 +368,6 @@ pub fn scan_token(source: Span) -> IResult<Span, Token, ErrorTree<Span>> {
         '"' => string(rest),
         '\'' => char_or_type(rest),
         '#' => lifetime(rest),
-        _ => (fail::<Span, Token, ErrorTree<Span>>.context("Cannot identify token!")).parse(rest)
+        _ => fail(rest)
     }
 }

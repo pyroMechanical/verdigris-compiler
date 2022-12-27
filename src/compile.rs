@@ -1,7 +1,6 @@
-use nom_locate::LocatedSpan;
-use nom_supreme::error::ErrorTree;
+use crate::SpanWith;
 
-pub fn compile_source(source: &str) -> Result<(), ErrorTree<LocatedSpan<&str>>> {
+pub fn compile_source(source: SpanWith) -> Result<(), nom::error::Error<SpanWith>> {
     let result = crate::semant::analyze(source);
     //println!("compiling...");
     result

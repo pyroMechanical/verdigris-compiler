@@ -1,8 +1,5 @@
 use std::io::{self, BufRead, Write};
 use nom_locate::LocatedSpan;
-use nom_supreme::error::{ErrorTree, BaseErrorKind, GenericErrorTree, StackContext};
-use thiserror::Error;
-use miette::GraphicalReportHandler;
 
 extern crate nom;
 
@@ -14,48 +11,36 @@ mod compile;
 
 type Span<'a> = LocatedSpan<&'a str>;
 
-#[derive(thiserror::Error, Debug, miette::Diagnostic)]
-#[error("bad input")]
-struct BadInput<'a> {
-    #[source_code]
-    src: &'a str,
+#[derive(Clone, Copy, Debug)]
+pub struct State<'a>(&'a std::cell::RefCell<Vec<Error<'a>>>);
 
-    #[label("{kind}")]
-    bad_bit: miette::SourceSpan,
-
-    kind: BaseErrorKind<&'static str, Box<dyn std::error::Error + Send + Sync>>,
-}
-
-fn print_errors<'a>(e:ErrorTree<Span<'a>>, source: &'a str, contexts:Vec<(LocatedSpan<&str>, StackContext<&str>)>) {
-    match e {
-        GenericErrorTree::Base{location, kind} => {
-            let offset = location.location_offset().into();
-            let err = BadInput {
-                src: source,
-                bad_bit: miette::SourceSpan::new(offset, 0.into()),
-                kind
-            };
-            let mut s = String::new();
-            GraphicalReportHandler::new()
-                .with_cause_chain()
-                .render_report(&mut s, &err)
-                .unwrap();
-            println!("{s}");
-        },
-        GenericErrorTree::Stack{base, contexts} => {
-            print_errors(*base, source, contexts);
-            //todo!()
-        },
-        GenericErrorTree::Alt(errors) => {
-            for e in errors {
-                print_errors(e, source, vec![]);
-            }
-        },
+impl<'a> State<'a> {
+    pub(crate) fn new(errs: &'a std::cell::RefCell<Vec<Error<'a>>>) -> Self {
+        State(errs)
+    }
+    pub(crate) fn error_count(&self) -> usize {
+        self.0.borrow().len()
+    }
+    pub(crate) fn report_error(&self, err: Error<'a>) {
+        self.0.borrow_mut().push(err);
+    }
+    pub(crate) fn truncate_errors(&self, length: usize) {
+        self.0.borrow_mut().truncate(length);
     }
 }
 
-fn repl() {
+#[derive(Clone, Copy, Debug)]
+struct Error<'a> {
+    src: Span<'a>,
+    msg: &'static str,
+}
+type SpanWith<'a> = LocatedSpan<&'a str, State<'a>>;
 
+pub(crate) fn to_span(span_with: SpanWith) -> Span {
+    Span::new(span_with.fragment())
+}
+
+fn repl() {
     println!("To execute your code, type '-eval' on a new line after the end of your block.");
     print!("> ");
     let _ = io::stdout().flush();
@@ -67,12 +52,14 @@ fn repl() {
             match line {
                 Ok(source_line) => {
                     if source_line.as_str().eq("-eval") {
-                        //println!("\"{}\"", source);
-                        let result = compile::compile_source(source.as_str());
+                        let errs = std::cell::RefCell::new(vec![]);
+                        let state = State::new(&errs);
+                        let source_span = SpanWith::new_extra(source.as_str(), state);
+                        let result = compile::compile_source(source_span);
                         match result
                         {
                             Ok(_) => {println!("Compile Success!");}
-                            Err(e) => {print_errors(e, source.as_ref(), vec![]);}
+                            Err(e) => {println!("{:?}", e);}
                         }
                         source.clear();
                     }

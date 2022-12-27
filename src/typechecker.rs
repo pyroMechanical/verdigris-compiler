@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use crate::lexer::Token;
 use crate::parser::{Decl, Expr, Pattern, Ty, Param, Fixity, CaseExpr};
-use nom_locate::LocatedSpan;
-use nom_supreme::error::ErrorTree;
+use crate::SpanWith;
 
 struct Scope<'a, 'b> where 'b: 'a {
     values: HashMap<&'a str, &'b Decl<'a>>,
@@ -60,7 +59,7 @@ fn find_in_scope<'a, 'b>(identifier: &str, scope: &'b Node<Scope<'a, 'b>>, names
     }
 }
 
-pub fn typecheck(source: &str) -> Result<(), ErrorTree<LocatedSpan<&str>>> {
+pub fn typecheck(source: SpanWith) -> Result<(), nom::error::Error<SpanWith>> {
     let result = crate::parser::parse(source)?;
     let mut scope_stack = Node::new(None, Scope::new());
     for  decl in & result {
@@ -78,32 +77,32 @@ fn new_type_var<'a, 'b>(scope: &mut Node<Scope<'a, 'b>>) -> Box<Ty<'a>> {
 
 fn resolve_symbols<'a, 'b>(source: &'b Decl<'a>, scope: &mut Node<Scope<'a, 'b>>) {
     match source {
-        Decl::Variable{mutable, pattern, type_, value} => 
+        Decl::Variable{pattern, ..} => 
         {
             let identifiers = crate::parser::identifiers_from_pattern(pattern.as_ref());
             for id in identifiers {
                 scope.value.values.insert(id.fragment(), source);
             }
         },
-        Decl::Function{name, args, return_type, body} => {
+        Decl::Function{name, ..} => {
             scope.value.values.insert(name, source);
         },
-        Decl::Operator{name, fixity, precedence} => {
+        Decl::Operator{name, ..} => {
             if let Token::Identifier(symbol) = *name {
                 scope.value.values.insert(symbol.fragment(), source);
             }
         },
-        Decl::Module{name, body} => {
+        Decl::Module{name, ..} => {
             if let Token::Identifier(symbol) = *name {
                 scope.value.types.insert(symbol.fragment(), source);
             }
         },
-        Decl::Class{class, types, constraints, body} => {
+        Decl::Class{class, ..} => {
             if let Token::Identifier(symbol) = *class {
                 scope.value.types.insert(symbol.fragment(), source);
             }
         },
-        Decl::Implementation{class, types, constraints, body} => {
+        Decl::Implementation{class, ..} => {
             if let Token::Identifier(symbol) = *class {
                 scope.value.types.insert(symbol.fragment(), source);
             }
@@ -117,7 +116,8 @@ fn resolve_symbols<'a, 'b>(source: &'b Decl<'a>, scope: &mut Node<Scope<'a, 'b>>
         Decl::Union{name, variants} => {
             todo!()
         },
-        Decl::Expr(expr) => resolve_expression(expr.as_ref(), scope)
+        Decl::Expr(expr) => resolve_expression(expr.as_ref(), scope),
+        Decl::Error => ()
     }
 }
 
@@ -226,6 +226,7 @@ fn pattern_to_type<'a, 'b>(pattern: &'b Pattern<'a>, scope: &mut Node<Scope<'a, 
                 Some(x) => x
             };
             Box::new(Ty::Array(array_type, None))
-        }
+        },
+        Pattern::Error => todo!()
     }
 }
