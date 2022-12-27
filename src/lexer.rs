@@ -286,12 +286,12 @@ pub fn skip_whitespace(source: SpanWith) -> IResult<SpanWith, SpanWith> {
 fn identifier(source: SpanWith) -> IResult<SpanWith, Token> {
     let x = keyword(source);
     match x {
-        Ok(y) => Ok(y),
         Err(_) =>
         {
             let (rest, id) = identifier_string(source)?;
             Ok((rest, Token::Identifier(to_span(id))))
         }
+        x => x
     }
 }
 
