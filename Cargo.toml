@@ -9,8 +9,7 @@ edition = "2021"
 debug = true
 
 [dependencies]
-nom = ">=7.1, <8.0.0"
-nom_locate = "4.0"
+logos = "0.12"
+rowan = "0.15.10"
 miette = { version = "5.5", features = ["fancy"] }
-nom-supreme = "0.8"
 thiserror = "1.0"
