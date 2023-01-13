@@ -22,7 +22,7 @@ fn repl() {
             match result
             {
               Ok(_) => {println!("Compile Success!");}
-              Err(e) => {println!("{:?}", e);}
+              Err(e) => ()//{println!("{:?}", e);}
             }
             source.clear();
           }
@@ -32,7 +32,7 @@ fn repl() {
           }
         }
         Err(e) => {
-          //eprintln!("{}", e);
+          eprintln!("{}", e);
         }
       }
       print!("> ");
