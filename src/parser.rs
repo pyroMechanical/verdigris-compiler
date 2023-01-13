@@ -1,8 +1,8 @@
 use rowan::{GreenNode, GreenNodeBuilder};
 use logos::Logos;
-use std::collections::HashMap;
 #[derive(Logos, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u16)]
+#[allow(unused)]
 enum TokenKind {
   #[regex(r"([ \t\r\n]+|//[^\n]*)", priority = 2)]
   WhiteSpace,
@@ -333,7 +333,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.skip_ws();
     match self.tokens.get(self.cursor) {
       None => self.report_error(format!("expected {}", token_kind)),
-      Some(&(kind, str)) => {
+      Some(&(kind, _)) => {
         if token_kind == kind {
           self.advance();
         }
@@ -406,14 +406,6 @@ impl<'a, 'b> TreeBuilder<'a, 'b> {
     self.cursor += 1;
   }
 }
-
-#[derive(PartialEq, Eq)]
-enum ParseError {
-  Eof,
-  WrongToken(TokenKind),
-  TerminatorToken(TokenKind)
-}
-type ParseResult = Result<(), ParseError>;
 
 pub fn parse<'a>(source: &'a str) -> ParsedTree {
   let mut lexer = TokenKind::lexer(source);
@@ -584,11 +576,11 @@ fn expr_type_from_token(token: TokenKind) -> Option<(fn(&mut Parser) -> (), Opti
   }
 }
 
-fn dereference(parser: &mut Parser, precedence: usize) {
+fn dereference(parser: &mut Parser, _: usize) {
   parser.advance();
 }
 
-fn reference(parser: &mut Parser, precedence: usize) {
+fn reference(parser: &mut Parser, _: usize) {
   parser.advance();
 }
 

@@ -1,6 +1,5 @@
 use std::io::{self, BufRead, Write};
 
-mod lexer;
 mod parser;
 mod typechecker;
 mod semant;
@@ -22,7 +21,7 @@ fn repl() {
             match result
             {
               Ok(_) => {println!("Compile Success!");}
-              Err(e) => ()//{println!("{:?}", e);}
+              Err(_) => ()//{println!("{:?}", e);}
             }
             source.clear();
           }
