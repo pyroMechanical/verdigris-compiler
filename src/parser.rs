@@ -28,6 +28,8 @@ enum TokenKind {
   Dot,
   #[token("->")]
   Arrow, 
+  #[token("(->)")]
+  BasicArrow,
   #[token("=>")]
   WideArrow,
   #[token(":")]
@@ -40,12 +42,12 @@ enum TokenKind {
   Reference,
   #[token("@")]
   Dereference,
-  #[regex(r"'[a-zA-Z_][a-zA-Z_0-9]*")]
-  TypeVar,
+  #[token("'")]
+  SingleQuote,
   #[token("let")]
   Let,
-  #[regex(r"#[a-zA-Z_][a-zA-Z_0-9]*")]
-  Lifetime,
+  #[token("#")]
+  HashSign,
   #[token("fn")]
   Fn,
   #[token("unsafe")]
@@ -176,6 +178,7 @@ enum TokenKind {
   ReferenceType,
   PointerType,
   VarType,
+  LifetimeType,
   GeneratedVarType,
   AppliedType,
   ArrayType,
@@ -193,6 +196,8 @@ enum TokenKind {
   StructDecl,
   NewTypeDecl,
   ExprDecl,
+
+  Parameter,
 
   ParseError,
 
@@ -300,7 +305,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       None => (),
       Some(&(kind, text)) => {
         self.cursor += 1;
-        self.events.push(Event::AddToken{kind, text: text.into()});
+        self.events.push(Event::AddToken{kind, text: text});
       }
     }
   }
@@ -377,7 +382,7 @@ impl<'a, 'b> TreeBuilder<'a, 'b> {
           self.builder.start_node(kind.into());
         }
         Event::AddToken{kind, text} => {
-          self.token(kind.into(), text);
+          self.token(kind, text);
         }
         Event::FinishNode => self.builder.finish_node(),
       }
@@ -423,7 +428,7 @@ pub fn parse<'a>(source: &'a str) -> ParsedTree {
     }
   }
   let mut parser = Parser{tokens: tokens.as_slice(), cursor:0, events: vec![], errors: vec![]};
-  parser.start_node(TokenKind::SourceFile.into());
+  parser.start_node(TokenKind::SourceFile);
   while parser.peek() != None {
     declaration(&mut parser);
   }
@@ -485,13 +490,13 @@ fn parenthesized_expr(parser: &mut Parser) {
   }
   parser.expect(TokenKind::CloseParen);
   if exprs == 0 {
-    parser.start_node_at(checkpoint, TokenKind::UnitExpr.into());
+    parser.start_node_at(checkpoint, TokenKind::UnitExpr);
   }
   else if exprs == 1 {
-    parser.start_node_at(checkpoint, TokenKind::GroupingExpr.into());
+    parser.start_node_at(checkpoint, TokenKind::GroupingExpr);
   }
   else {
-    parser.start_node_at(checkpoint, TokenKind::TupleExpr.into());
+    parser.start_node_at(checkpoint, TokenKind::TupleExpr);
   }
   parser.finish_node();
 }
@@ -510,7 +515,7 @@ fn block_expr(parser: &mut Parser) {
         }
         else {
           if parser.matched(TokenKind::Semicolon) {
-            parser.start_node_at(checkpoint, TokenKind::ExprDecl.into());
+            parser.start_node_at(checkpoint, TokenKind::ExprDecl);
             parser.finish_node();
           }
         }
@@ -537,7 +542,7 @@ fn if_expr(parser: &mut Parser) {
   parser.advance();
   expr(parser); //todo: switch to non-struct-init expressions only
     if parser.peek() == Some(TokenKind::Brace) {
-    parser.start_node(TokenKind::BlockExpr.into());
+    parser.start_node(TokenKind::BlockExpr);
     block_expr(parser);
     parser.finish_node();
   }
@@ -547,7 +552,7 @@ fn if_expr(parser: &mut Parser) {
     if parser.matched(TokenKind::Else) {
       parser.advance();
       if parser.peek() == Some(TokenKind::Brace) {
-      parser.start_node(TokenKind::BlockExpr.into());
+      parser.start_node(TokenKind::BlockExpr);
       block_expr(parser);
       parser.finish_node();
     }
@@ -598,9 +603,18 @@ fn rhs_type_from_token(token: TokenKind) -> Option<(fn(&mut Parser, usize) -> ()
   }
 }
 
+fn parameter(parser: &mut Parser) {
+  parser.start_node(TokenKind::Parameter);
+  pattern(parser);
+  if parser.matched(TokenKind::Colon) {
+    type_(parser);
+  }
+  parser.finish_node();
+}
+
 fn let_decl(parser: &mut Parser) {
   assert!(parser.peek() == Some(TokenKind::Let));
-  parser.start_node(TokenKind::VariableDecl.into());
+  parser.start_node(TokenKind::VariableDecl);
   parser.advance();
   parser.matched(TokenKind::Mutable);
   pattern(parser);
@@ -614,6 +628,28 @@ fn let_decl(parser: &mut Parser) {
   parser.finish_node();
 }
 
+fn function_decl(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Fn));
+  parser.start_node(TokenKind::FunctionDecl);
+  parser.advance();
+  parser.expect(TokenKind::Identifier);
+  parser.expect(TokenKind::Paren);
+  while parser.peek() != Some(TokenKind::CloseParen) {
+    parameter(parser);
+    if !parser.matched(TokenKind::Comma) {
+      break;
+    }
+  }
+  parser.expect(TokenKind::CloseParen);
+  if parser.matched(TokenKind::Arrow) {
+    type_(parser);
+  }
+  if parser.peek() == Some(TokenKind::Brace) {
+    block_expr(parser);
+  }
+  parser.finish_node();
+}
+
 fn declaration(parser: &mut Parser) -> bool {
   let checkpoint = parser.checkpoint();
   let mut result = true;
@@ -621,7 +657,7 @@ fn declaration(parser: &mut Parser) -> bool {
     None => (),
     Some(kind) => match kind {
       TokenKind::Let => let_decl(parser),
-      TokenKind::Fn => todo!("function declaration"),
+      TokenKind::Fn => function_decl(parser),
       TokenKind::Class => todo!("class declaration"),
       TokenKind::Implement => todo!("implementation declaration"),
       TokenKind::Struct => todo!("struct declaration"),
@@ -630,7 +666,7 @@ fn declaration(parser: &mut Parser) -> bool {
         result = expr(parser);
         if result {
           parser.expect(TokenKind::Semicolon);
-          parser.start_node_at(checkpoint, TokenKind::ExprDecl.into());
+          parser.start_node_at(checkpoint, TokenKind::ExprDecl);
           parser.finish_node();
         }
       },
@@ -645,10 +681,41 @@ fn type_(parser: &mut Parser) {
 
 fn function_type(parser: &mut Parser) {
   let checkpoint = parser.checkpoint();
-  array_or_pointer_type(parser);
+  applied_type(parser);
   if parser.matched(TokenKind::Arrow) {
-    parser.start_node_at(checkpoint, TokenKind::FunctionType.into());
+    parser.start_node_at(checkpoint, TokenKind::FunctionType);
     function_type(parser);
+    parser.finish_node();
+  }
+}
+
+
+
+fn is_function_token(token: Option<TokenKind>) -> bool{
+  match token {
+    None => false,
+    Some(t) => match t {
+      TokenKind::Identifier
+      | TokenKind::SingleQuote
+      | TokenKind::BasicArrow
+      | TokenKind::Bracket
+      | TokenKind::Paren
+      | TokenKind::HashSign
+      | TokenKind::Reference
+      | TokenKind::Dereference => true,
+      _ => false
+    }
+  }
+}
+
+fn applied_type(parser: &mut Parser) {
+  let checkpoint = parser.checkpoint();
+  array_or_pointer_type(parser);
+  if is_function_token(parser.peek()) {
+    parser.start_node_at(checkpoint, TokenKind::AppliedType);
+    while is_function_token(parser.peek()) {
+      array_or_pointer_type(parser);
+    }
     parser.finish_node();
   }
 }
@@ -657,23 +724,29 @@ fn array_or_pointer_type(parser: &mut Parser) {
   let checkpoint = parser.checkpoint();
   if parser.matched(TokenKind::Reference) {
     parser.matched(TokenKind::Mutable);
+    let lifetime_checkpoint = parser.checkpoint();
+    if parser.matched(TokenKind::HashSign) {
+      parser.start_node_at(lifetime_checkpoint, TokenKind::LifetimeType);
+      parser.expect(TokenKind::Identifier);
+      parser.finish_node();
+    }
     array_or_pointer_type(parser);
-    parser.start_node_at(checkpoint, TokenKind::ReferenceType.into());
+    parser.start_node_at(checkpoint, TokenKind::ReferenceType);
     parser.finish_node();
   }
   else if parser.matched(TokenKind::Dereference) {
     array_or_pointer_type(parser);
-    parser.start_node_at(checkpoint, TokenKind::PointerType.into());
+    parser.start_node_at(checkpoint, TokenKind::PointerType);
     parser.finish_node();
   }
   else if parser.matched(TokenKind::Bracket) {
       if parser.matched(TokenKind::CloseBracket) {
-      parser.start_node_at(checkpoint, TokenKind::BasicArrayType.into());
+      parser.start_node_at(checkpoint, TokenKind::BasicArrayType);
       parser.finish_node();
     }
     else if parser.matched(TokenKind::Int) {
       parser.expect(TokenKind::CloseBracket);
-      parser.start_node_at(checkpoint, TokenKind::BasicArrayType.into());
+      parser.start_node_at(checkpoint, TokenKind::BasicArrayType);
       parser.finish_node();
     }
     else {
@@ -682,25 +755,20 @@ fn array_or_pointer_type(parser: &mut Parser) {
         parser.expect(TokenKind::Int);
       }
       parser.expect(TokenKind::CloseBracket);
-      parser.start_node_at(checkpoint, TokenKind::ArrayType.into());
+      parser.start_node_at(checkpoint, TokenKind::ArrayType);
       parser.finish_node();
     }
   }
   else {
-    applied_type(parser);
+    paren_type(parser);
   }
-}
-
-fn applied_type(parser: &mut Parser) {
-  paren_type(parser);
-  //todo: add support for successive types
 }
 
 fn paren_type(parser: &mut Parser) {
   let checkpoint = parser.checkpoint();
   if parser.matched(TokenKind::Paren) {
     if parser.matched(TokenKind::CloseParen) {
-      parser.start_node_at(checkpoint, TokenKind::UnitType.into());
+      parser.start_node_at(checkpoint, TokenKind::UnitType);
       parser.finish_node();
     }
     else if parser.matched(TokenKind::Comma) {
@@ -708,7 +776,7 @@ fn paren_type(parser: &mut Parser) {
         parser.expect(TokenKind::Comma);
       }
       parser.expect(TokenKind::CloseParen);
-      parser.start_node_at(checkpoint, TokenKind::BasicTupleType.into());
+      parser.start_node_at(checkpoint, TokenKind::BasicTupleType);
       parser.finish_node();
     }
     else {
@@ -722,11 +790,11 @@ fn paren_type(parser: &mut Parser) {
       }
       parser.expect(TokenKind::CloseParen);
       if types == 1 {
-        parser.start_node_at(checkpoint, TokenKind::GroupingType.into());
+        parser.start_node_at(checkpoint, TokenKind::GroupingType);
         parser.finish_node();
       }
       else if types > 1{
-        parser.start_node_at(checkpoint, TokenKind::TupleType.into());
+        parser.start_node_at(checkpoint, TokenKind::TupleType);
         parser.finish_node();
       }
     }
@@ -737,9 +805,26 @@ fn paren_type(parser: &mut Parser) {
 }
 
 fn basic_type(parser: &mut Parser) {
-  parser.start_node(TokenKind::BasicType.into());
-  parser.expect(TokenKind::Identifier);
-  parser.finish_node();
+  let checkpoint = parser.checkpoint();
+  if parser.matched(TokenKind::SingleQuote) {
+    parser.start_node_at(checkpoint, TokenKind::VarType);
+    parser.expect(TokenKind::Identifier);
+    parser.finish_node();
+  }
+  else if parser.matched(TokenKind::BasicArrow) {
+    parser.start_node_at(checkpoint, TokenKind::BasicArrowType);
+    parser.finish_node();
+  }
+  else if parser.matched(TokenKind::HashSign) {
+    parser.start_node_at(checkpoint, TokenKind::LifetimeType);
+    parser.expect(TokenKind::Identifier);
+    parser.finish_node();
+  }
+  else {
+    parser.start_node(TokenKind::BasicType);
+    parser.expect(TokenKind::Identifier);
+    parser.finish_node();
+  }
 }
 
 fn parenthesized_pattern(parser: &mut Parser) {
@@ -754,13 +839,13 @@ fn parenthesized_pattern(parser: &mut Parser) {
   }
   parser.expect(TokenKind::CloseParen);
   if patterns == 0 {
-    parser.start_node_at(checkpoint, TokenKind::UnitPattern.into());
+    parser.start_node_at(checkpoint, TokenKind::UnitPattern);
   }
   else if patterns == 1 {
-    parser.start_node_at(checkpoint, TokenKind::GroupingPattern.into());
+    parser.start_node_at(checkpoint, TokenKind::GroupingPattern);
   }
   else {
-    parser.start_node_at(checkpoint, TokenKind::TuplePattern.into());
+    parser.start_node_at(checkpoint, TokenKind::TuplePattern);
   }
   parser.finish_node();
 }
@@ -772,12 +857,12 @@ fn pattern(parser: &mut Parser) {
     Some(x) => match x {
       TokenKind::Identifier => {
         parser.advance();
-        parser.start_node_at(checkpoint, TokenKind::IdentifierPattern.into());
+        parser.start_node_at(checkpoint, TokenKind::IdentifierPattern);
         parser.finish_node();
       }
       TokenKind::Placeholder => {
         parser.advance();
-        parser.start_node_at(checkpoint, TokenKind::PlaceholderPattern.into());
+        parser.start_node_at(checkpoint, TokenKind::PlaceholderPattern);
         parser.finish_node();
       }
       TokenKind::True
@@ -791,7 +876,7 @@ fn pattern(parser: &mut Parser) {
       | TokenKind::Int
       | TokenKind::HexInt => {
         parser.advance();
-        parser.start_node_at(checkpoint, TokenKind::LiteralPattern.into());
+        parser.start_node_at(checkpoint, TokenKind::LiteralPattern);
         parser.finish_node();
       }
       TokenKind::Paren => parenthesized_pattern(parser),
@@ -813,7 +898,7 @@ fn prec_expr(parser: &mut Parser, precedence: usize) -> bool {
         let checkpoint = parser.checkpoint();
         f(parser);
         if let Some(kind) = kind {
-          parser.start_node_at(checkpoint, kind.into());
+          parser.start_node_at(checkpoint, kind);
           parser.finish_node();
         }
         result = true;
@@ -828,7 +913,7 @@ fn prec_expr(parser: &mut Parser, precedence: usize) -> bool {
         Some((f, kind, prec)) => {
           if prec >= precedence {
             f(parser, prec);
-            parser.start_node_at(checkpoint, kind.into());
+            parser.start_node_at(checkpoint, kind);
             parser.finish_node();
           }
           else {break 'rhs}
