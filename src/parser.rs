@@ -2,7 +2,7 @@ use rowan::{GreenNode, GreenNodeBuilder};
 use logos::Logos;
 #[derive(Logos, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u16)]
-#[allow(unused)]
+#[allow(dead_code)]
 enum TokenKind {
   #[regex(r"([ \t\r\n]+|//[^\n]*)", priority = 2)]
   WhiteSpace,
@@ -52,14 +52,14 @@ enum TokenKind {
   Fn,
   #[token("unsafe")]
   Unsafe,
-  #[regex(r"([a-zA-Z_][a-zA-Z_0-9]*|\([~!$^%*-+=/?><|]+\))")]
+  #[regex(r"([a-zA-Z_][a-zA-Z_0-9]*|\([~!$^%*\-+=/?><|]+\))")]
   Identifier,
   #[regex(r"([~!$^%*\-+=/?><|]+|`[a-zA-Z_][a-zA-Z_0-9]*`)")]
   Operator,
   #[token("_")]
   Placeholder,
-  #[token("newtype")]
-  NewType,
+  #[token("type")]
+  Type,
   #[token("switch")]
   Switch,
   #[token("::")]
@@ -106,12 +106,12 @@ enum TokenKind {
   For, 
   #[token("loop")]
   Loop,
-  #[token("infix")]
-  Infix, 
+  #[token("infixl")]
+  Infixl,
+  #[token("infixr")]
+  Infixr,
   #[token("prefix")]
   Prefix, 
-  #[token("postfix")]
-  Postfix,
   #[token("return")]
   Return, 
   #[token("else")]
@@ -131,13 +131,13 @@ enum TokenKind {
 
   //expression nodes
   IfExpr,
-  WhileExpr,
-  LoopExpr,
-  SwitchExpr,
+  //WhileExpr,
+  //LoopExpr,
+  //SwitchExpr,
   GroupingExpr,
   AssignmentExpr,
   LiteralExpr,
-  LambdaExpr,
+  //LambdaExpr,
   IdentifierExpr,
   PlaceholderExpr,
   TupleExpr,
@@ -149,7 +149,6 @@ enum TokenKind {
   ReturnExpr,
   DereferenceExpr,
   ReferenceExpr,
-  PostfixExpr,
   BinaryExpr,
   PathExpr,
   FieldCallExpr,
@@ -179,11 +178,11 @@ enum TokenKind {
   PointerType,
   VarType,
   LifetimeType,
-  GeneratedVarType,
   AppliedType,
   ArrayType,
   TupleType,
   FunctionType,
+  TypeConstraint,
 
   //declaration nodes
   VariableDecl,
@@ -196,10 +195,9 @@ enum TokenKind {
   StructDecl,
   NewTypeDecl,
   ExprDecl,
+  UsingDecl,
 
   Parameter,
-
-  ParseError,
 
   SourceFile
 }
@@ -465,7 +463,9 @@ fn function_call(parser: &mut Parser, precedence: usize) {
   parser.advance();
   while parser.peek() != None && parser.peek() != Some(TokenKind::CloseParen){
     prec_expr(parser, precedence);
-    parser.matched(TokenKind::Comma);
+    if !parser.matched(TokenKind::Comma){
+      break;
+    }
   }
   parser.expect(TokenKind::CloseParen);
 }
@@ -554,6 +554,30 @@ fn if_expr(parser: &mut Parser) {
   }
 }
 
+fn array_expr(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Bracket));
+  parser.advance();
+  while parser.peek() != None && parser.peek() != Some(TokenKind::CloseBracket) {
+    expr(parser);
+    if !parser.matched(TokenKind::Comma) {
+      break;
+    }
+  }
+  parser.expect(TokenKind::CloseBracket);
+}
+
+fn unsafe_expr(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Unsafe));
+  parser.advance();
+  expr(parser);
+}
+
+fn return_expr(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Return));
+  parser.advance();
+  expr(parser);
+}
+
 fn expr_type_from_token(token: TokenKind) -> Option<(fn(&mut Parser) -> (), Option<TokenKind>)> {
   match token {
     TokenKind::Identifier => Some((single_token, Some(TokenKind::IdentifierExpr))),
@@ -572,6 +596,9 @@ fn expr_type_from_token(token: TokenKind) -> Option<(fn(&mut Parser) -> (), Opti
     TokenKind::Paren => Some((parenthesized_expr, None)),
     TokenKind::Brace => Some((block_expr, Some(TokenKind::BlockExpr))),
     TokenKind::If => Some((if_expr, Some(TokenKind::IfExpr))),
+    TokenKind::Bracket => Some((array_expr, Some(TokenKind::ArrayConstructorExpr))),
+    TokenKind::Unsafe => Some((unsafe_expr, Some(TokenKind::UnsafeExpr))),
+    TokenKind::Return => Some((return_expr, Some(TokenKind::ReturnExpr))),
     _ => None
   }
 }
@@ -584,6 +611,54 @@ fn reference(parser: &mut Parser, _: usize) {
   parser.advance();
 }
 
+fn struct_init(parser: &mut Parser, _: usize) {
+  assert!(parser.peek() == Some(TokenKind::Brace));
+  parser.advance();
+  while parser.peek() != None && parser.peek() != Some(TokenKind::CloseBrace) {
+    parser.expect(TokenKind::Identifier);
+    if parser.matched(TokenKind::Colon) {
+      expr(parser);
+    }
+    if !parser.matched(TokenKind::Comma) {
+      break;
+    }
+  }
+  parser.expect(TokenKind::CloseBrace);
+}
+
+fn path(parser: &mut Parser, _: usize) {
+  assert!(parser.peek() == Some(TokenKind::Path));
+  parser.advance();
+  if parser.matched(TokenKind::Brace) {
+    while parser.peek() != None && parser.peek() != Some(TokenKind::CloseBrace) {
+      let checkpoint = parser.checkpoint();
+      parser.expect(TokenKind::Identifier);
+      if parser.peek() == Some(TokenKind::Path) {
+        path(parser, 0);
+        parser.start_node_at(checkpoint, TokenKind::PathExpr);
+      }
+      if !parser.matched(TokenKind::Comma) {
+        break;
+      }
+    }
+    parser.expect(TokenKind::CloseBrace);
+  }
+  else {parser.expect(TokenKind::Identifier)};
+}
+
+fn array_index(parser: &mut Parser, _: usize) {
+  assert!(parser.peek() == Some(TokenKind::Bracket));
+  parser.advance();
+  expr(parser);
+  parser.expect(TokenKind::CloseBracket);
+}
+
+fn assignment(parser: &mut Parser, _: usize) {
+  assert!(parser.peek() == Some(TokenKind::Equal));
+  parser.advance();
+  expr(parser);
+}
+
 fn rhs_type_from_token(token: TokenKind) -> Option<(fn(&mut Parser, usize) -> (), TokenKind, usize)> {
   match token {
     TokenKind::Dot => Some((field_call, TokenKind::FieldCallExpr, 3)),
@@ -591,6 +666,10 @@ fn rhs_type_from_token(token: TokenKind) -> Option<(fn(&mut Parser, usize) -> ()
     TokenKind::Dereference => Some((dereference, TokenKind::DereferenceExpr, 2)),
     TokenKind::Reference => Some((reference, TokenKind::ReferenceExpr, 2)),
     TokenKind::Operator => Some((operator_expr, TokenKind::BinaryExpr, 1)), //binary expr
+    TokenKind::Brace => Some((struct_init, TokenKind::StructInitExpr, 1)),
+    TokenKind::Path => Some((path, TokenKind::PathExpr, 0)),
+    TokenKind::Bracket => Some((array_index, TokenKind::ArrayIndexExpr, 3)),
+    TokenKind::Equal => Some((assignment, TokenKind::AssignmentExpr, 0)),
     _ => None
   }
 }
@@ -639,6 +718,136 @@ fn function_decl(parser: &mut Parser) {
   if parser.peek() == Some(TokenKind::Brace) {
     block_expr(parser);
   }
+  else {parser.expect(TokenKind::Semicolon)}
+  parser.finish_node();
+}
+
+fn class_decl(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Class));
+  parser.start_node(TokenKind::ClassDecl);
+  parser.advance();
+  let constraint = parser.checkpoint();
+  type_(parser);
+  if parser.matched(TokenKind::WideArrow) {
+    parser.start_node_at(constraint, TokenKind::TypeConstraint);
+    parser.finish_node();
+    type_(parser);
+  }
+  if parser.matched(TokenKind::Brace){
+    while parser.peek() != None && parser.peek() != Some(TokenKind::CloseBrace) {
+      declaration(parser);
+    }
+    parser.expect(TokenKind::CloseBrace);
+  }
+}
+
+fn implementation_decl(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Implement));
+  parser.start_node(TokenKind::ImplementationDecl);
+  parser.advance();
+  let constraint = parser.checkpoint();
+  type_(parser);
+  if parser.matched(TokenKind::WideArrow) {
+    parser.start_node_at(constraint, TokenKind::TypeConstraint);
+    parser.finish_node();
+    type_(parser);
+  }
+  if parser.matched(TokenKind::Brace){
+    while parser.peek() != None && parser.peek() != Some(TokenKind::CloseBrace) {
+      declaration(parser);
+    }
+    parser.expect(TokenKind::CloseBrace);
+  }
+}
+
+fn struct_decl(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Struct));
+  parser.start_node(TokenKind::StructDecl);
+  parser.advance();
+  type_(parser);
+  if parser.peek() == Some(TokenKind::Paren) {
+    paren_type(parser);
+  }
+  else if parser.matched(TokenKind::Brace) {
+    while parser.peek() != None && parser.peek() != Some(TokenKind::CloseBrace) {
+      parameter(parser);
+      if !parser.matched(TokenKind::Comma) {
+        break;
+      }
+    }
+    parser.expect(TokenKind::CloseBrace);
+  }
+  else {
+    parser.report_error("expected struct or tuple struct definition!".into());
+  }
+  parser.finish_node();
+}
+
+fn union_decl(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Union));
+  parser.start_node(TokenKind::UnionDecl);
+  parser.advance();
+  type_(parser);
+  parser.expect(TokenKind::Brace);
+  while parser.peek() != None && parser.peek() != Some(TokenKind::CloseBrace) {
+    parser.expect(TokenKind::Identifier);
+    if parser.peek() == Some(TokenKind::Paren) {
+      paren_type(parser)
+    }
+    if !parser.matched(TokenKind::Comma) {
+      break;
+    }
+  }
+  parser.expect(TokenKind::CloseBrace);
+  parser.finish_node();
+}
+
+fn using_decl(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Using));
+  parser.start_node(TokenKind::UsingDecl);
+  parser.advance();
+  parser.expect(TokenKind::Identifier);
+  while parser.peek() == Some(TokenKind::Path) {
+    path(parser, 0);
+  }
+  parser.expect(TokenKind::Semicolon);
+  parser.finish_node();
+}
+
+fn operator_decl(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Prefix) 
+  || parser.peek() == Some(TokenKind::Infixl) 
+  || parser.peek() == Some(TokenKind::Infixr));
+  parser.start_node(TokenKind::OperatorDecl);
+  parser.advance();
+  parser.expect(TokenKind::Identifier);
+  parser.matched(TokenKind::Int);
+  parser.expect(TokenKind::Semicolon);
+  parser.finish_node();
+}
+
+fn module_decl(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Module));
+  parser.start_node(TokenKind::ModuleDecl);
+  parser.advance();
+  parser.expect(TokenKind::Identifier);
+  if parser.peek() == Some(TokenKind::Brace) {
+    block_expr(parser);
+  }
+  else {
+    parser.expect(TokenKind::Semicolon);
+  }
+  parser.finish_node();
+}
+
+fn type_decl(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Type));
+  parser.start_node(TokenKind::NewTypeDecl);
+  parser.advance();
+  type_(parser);
+  parser.expect(TokenKind::Equal);
+  type_(parser);
+  parser.expect(TokenKind::Semicolon);
   parser.finish_node();
 }
 
@@ -650,10 +859,16 @@ fn declaration(parser: &mut Parser) -> bool {
     Some(kind) => match kind {
       TokenKind::Let => let_decl(parser),
       TokenKind::Fn => function_decl(parser),
-      TokenKind::Class => todo!("class declaration"),
-      TokenKind::Implement => todo!("implementation declaration"),
-      TokenKind::Struct => todo!("struct declaration"),
-      TokenKind::Union => todo!("union declaration"),
+      TokenKind::Class => class_decl(parser),
+      TokenKind::Implement => implementation_decl(parser),
+      TokenKind::Struct => struct_decl(parser),
+      TokenKind::Union => union_decl(parser),
+      TokenKind::Using => using_decl(parser),
+      TokenKind::Module => module_decl(parser),
+      TokenKind::Type => type_decl(parser),
+      TokenKind::Prefix
+      | TokenKind::Infixl
+      | TokenKind::Infixr => operator_decl(parser),
       _ => {
         result = expr(parser);
         if result {
@@ -680,8 +895,6 @@ fn function_type(parser: &mut Parser) {
     parser.finish_node();
   }
 }
-
-
 
 fn is_function_token(token: Option<TokenKind>) -> bool{
   match token {
@@ -842,6 +1055,20 @@ fn parenthesized_pattern(parser: &mut Parser) {
   parser.finish_node();
 }
 
+fn array_pattern(parser: &mut Parser) {
+  assert!(parser.peek() == Some(TokenKind::Bracket));
+  parser.start_node(TokenKind::ArrayPattern);
+  parser.advance();
+  while parser.peek() != Some(TokenKind::CloseBrace) {
+    pattern(parser);
+    if !parser.matched(TokenKind::Comma) {
+      break;
+    }
+  }
+  parser.expect(TokenKind::CloseBrace);
+  parser.finish_node();
+}
+
 fn pattern(parser: &mut Parser) {
   let checkpoint = parser.checkpoint();
   match parser.peek() {
@@ -849,8 +1076,35 @@ fn pattern(parser: &mut Parser) {
     Some(x) => match x {
       TokenKind::Identifier => {
         parser.advance();
-        parser.start_node_at(checkpoint, TokenKind::IdentifierPattern);
-        parser.finish_node();
+        if parser.matched(TokenKind::Brace) {
+          while parser.peek() != None && parser.peek() != Some(TokenKind::CloseBrace) {
+            pattern(parser);
+            if parser.matched(TokenKind::Colon) {
+              pattern(parser);
+            }
+            if !parser.matched(TokenKind::Comma) {
+              break;
+            }
+          }
+          parser.expect(TokenKind::CloseBrace);
+          parser.start_node_at(checkpoint, TokenKind::StructPattern);
+          parser.finish_node();
+        }
+        else if parser.matched(TokenKind::Paren) {
+          while parser.peek() != None && parser.peek() != Some(TokenKind::CloseParen) {
+            pattern(parser);
+            if !parser.matched(TokenKind::Comma) {
+              break;
+            }
+          }
+          parser.expect(TokenKind::CloseParen);
+          parser.start_node_at(checkpoint, TokenKind::TupleStructPattern);
+          parser.finish_node();
+        }
+        else {
+          parser.start_node_at(checkpoint, TokenKind::IdentifierPattern);
+          parser.finish_node();
+        }
       }
       TokenKind::Placeholder => {
         parser.advance();
@@ -872,6 +1126,7 @@ fn pattern(parser: &mut Parser) {
         parser.finish_node();
       }
       TokenKind::Paren => parenthesized_pattern(parser),
+      TokenKind::Bracket => array_pattern(parser),
       x => parser.report_error(format!("expected Pattern, found {}", x))
     }
   }
