@@ -13,3 +13,5 @@ logos = "0.12"
 rowan = "0.15.10"
 miette = { version = "5.5", features = ["fancy"] }
 thiserror = "1.0"
+smol_str = "0.1"
+index_vec = "0.1.3"

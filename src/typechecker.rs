@@ -1,322 +1,965 @@
-//use std::collections::HashMap;
-//use crate::parser::ParsedTree;
+use crate::ast;
+use crate::parser::TokenKind;
+use ast::{ArrowType, Decl, DeclIdx, Expr, ExprIdx, SymbolTable, TypeIdx};
+use index_vec::{index_vec, IndexVec};
+use smol_str::SmolStr;
+use std::collections::VecDeque;
 
-
-
-//#[derive(Clone, Debug)]
-//pub struct CaseExpr<'a>(Box<Pattern<'a>>, Box<Expr<'a>>);
-//
-//#[derive(Clone, Debug)]
-//pub enum Expr<'a> {
-//    If{cond: Box<Expr<'a>>, true_branch: Box<Expr<'a>>, else_branch: Option<Box<Expr<'a>>>},
-//    //For{init: Option<Box<Expression<'a>>>, cond: Option<Box<Expression<'a>>>, incr: Option<Box<Expression<'a>>>, _loop: Box<Expression<'a>>},
-//    While{cond: Box<Expr<'a>>, loop_: Box<Expr<'a>>},
-//    Loop{loop_: Box<Expr<'a>>},
-//    Switch{expr: Box<Expr<'a>>, arms: Vec<Box<CaseExpr<'a>>>},
-//    Assignment{assigned: Box<Expr<'a>>, value: Box<Expr<'a>>},
-//    Literal(Token<'a>),
-//    _Lambda,
-//    Identifier(Token<'a>),
-//    Placeholder,
-//    Tuple(Vec<Box<Expr<'a>>>),
-//    Prefix{op: Token<'a>, expr: Box<Expr<'a>>},
-//    Block{declarations: Vec<Box<Decl<'a>>>, ret: Option<Box<Expr<'a>>>},
-//    ArrayConstructor(Vec<Box<Expr<'a>>>),
-//    Unsafe(Box<Expr<'a>>),
-//    Unit,
-//    Return(Box<Expr<'a>>),
-//    //left-recursive expressions
-//    Dereference(Box<Expr<'a>>),
-//    Reference{ref_: Box<Expr<'a>>, mutable: bool},
-//    Postfix{op: Token<'a>, expr: Box<Expr<'a>>},
-//    Binary{expr1: Box<Expr<'a>>, op: Token<'a>, expr2: Box<Expr<'a>>},
-//    Path{identifier: Box<Expr<'a>>, expr: Box<Expr<'a>>},
-//    FieldCall(Box<Expr<'a>>, Box<Expr<'a>>),
-//    FunctionCall{function:  Box<Expr<'a>>, args: Vec<Box<Expr<'a>>>},
-//    ArrayIndex{array:Box<Expr<'a>>, arg: Box<Expr<'a>>},
-//    StructInit{id: Box<Expr<'a>>, args: Vec<Box<Expr<'a>>>},
-//    Error
-//}
-//
-//#[derive(Clone, Debug, PartialEq) ]
-//pub enum Ty<'a> {
-//    Basic(Token<'a>),
-//    ArrayBasic(Option<Token<'a>>), //todo: make this a number
-//    Unit,
-//    Reference,
-//    Pointer,
-//    Var(Token<'a>),
-//    GeneratedVar(u64),
-//    Applied(Box<Ty<'a>>, Vec<Box<Ty<'a>>>),
-//    Array(Box<Ty<'a>>, Option<Token<'a>>), //todo: make size a number
-//    Tuple(Vec<Box<Ty<'a>>>),
-//    Error
-//}
-//
-//#[derive(Clone, Debug)]
-//pub enum Pattern<'a> {
-//    Identifier(&'a str),
-//    Literal(Token<'a>),
-//    Tuple(Vec<Box<Pattern<'a>>>),
-//    Placeholder,
-//    Array(Vec<Box<Pattern<'a>>>),
-//    VariantUnwrap(Box<Pattern<'a>>, Vec<Box<Pattern<'a>>>),
-//    Error
-//}
-//#[derive(Clone, Debug)]
-//pub struct Param<'a> {
-//    name: Box<Pattern<'a>>,
-//    type_: Option<Box<Ty<'a>>>
-//}
-//#[derive(Clone, Debug)]
-//pub enum Fixity {
-//    Prefix,
-//    Infix,
-//    Postfix
-//}
-//
-//#[derive(Clone, Debug)]
-//pub enum Decl<'a> {
-//    Variable{mutable: bool, pattern: Box<Pattern<'a>>, type_: Option<Box<Ty<'a>>>, value: Option<Box<Expr<'a>>>},
-//    Function{ name: &'a str, args: Vec<Param<'a>>, return_type: Option<Box<Ty<'a>>>, body: Box<Expr<'a>>},
-//    Operator{name: Token<'a>, fixity: Fixity, precedence: Token<'a>},
-//    Class{class: Token<'a>, types: Vec<Box<Ty<'a>>>, constraints: Option<Vec<Box<Ty<'a>>>>, body: Box<Expr<'a>>},
-//    Implementation{class: Token<'a>, types: Vec<Box<Ty<'a>>>, constraints: Option<Vec<Box<Ty<'a>>>>, body: Box<Expr<'a>>}, //finish this
-//    Module{name: Token<'a>, body: Box<Expr<'a>>},
-//    Union{name: Box<Ty<'a>>, variants: Vec<Param<'a>>},
-//    Struct{name: Box<Ty<'a>>, members: Vec<Param<'a>>},
-//    NewType{defined: Box<Ty<'a>>, replacing: Box<Ty<'a>>},
-//    Expr(Box<Expr<'a>>),
-//    Error
-//}
-//
-//struct Scope<'a, 'b> where 'b: 'a {
-//    values: HashMap<&'a str, &'b Decl<'a>>,
-//    types: HashMap<&'a str, &'b Decl<'a>>,
-//    macros: HashMap<&'a str, &'b Decl<'a>>,
-//    type_vars: u64
-//} 
-//
-//impl<'a, 'b> Scope<'a, 'b>{
-//    fn new() -> Self {
-//        Scope{values: HashMap::new(), types: HashMap::new(), macros: HashMap::new(), type_vars: 0}
-//    }
-//    
-//}
-//
-//struct Node<T>{parent: Option<*const Node<T>>, children: Vec<Node<T>>, value: T}
-//
-//impl<T> Node<T> {
-//    fn new(parent: Option<*const Node<T>>, value: T) -> Self {
-//        Node{parent, children: vec![], value}
-//    }
-//
-//    fn parent(&self) -> Option<&Node<T>>{
-//        self.parent.and_then(|parent| {Some(unsafe{&*parent})})
-//    }
-//
-//    fn insert_child(&mut self, value: T) -> &mut Self {
-//        self.children.push(Self::new(Some(self), value));
-//        self.children.last_mut().unwrap()
-//    }
-//}
-//
-//enum Namespace {
-//    Value,
-//    Type,
-//    Macro
-//}
-//
-//fn find_in_scope<'a, 'b>(identifier: &str, scope: &'b Node<Scope<'a, 'b>>, namespace: Namespace) -> Option<&'b Decl<'a>> where 'a: 'b {
-//
-//    let name = match namespace {
-//        Namespace::Value =>scope.value.values.get(identifier),
-//        Namespace::Type =>scope.value.types.get(identifier),
-//        Namespace::Macro => scope.value.macros.get(identifier),
-//    };
-//    match name {
-//        Some(&name) => Some(name),
-//        None => {
-//            let parent = scope.parent();
-//            match parent {
-//                Some(parent) => find_in_scope(identifier, parent, namespace),
-//                None => None
-//            }
-//        }
-//    }
-//}
-
-pub fn typecheck(source: &str) -> Result<(), ()> {
-  let result = crate::parser::parse(source);
-  //let mut scope_stack = Node::new(None, Scope::new());
-  //for  decl in & result {
-  //    resolve_symbols(decl.as_ref(), &mut scope_stack);
-  //}
-  if result.errors.is_empty() { Ok(())}
-  else {Err(())}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TypeVarID(usize);
+impl TypeVarID {
+    fn increment(&mut self) -> Self {
+        self.0 += 1;
+        *self
+    }
 }
 
-//fn new_type_var<'a, 'b>(scope: &mut Node<Scope<'a, 'b>>) -> Box<Ty<'a>> {
-//    let typevar = &mut scope.value.type_vars;
-//    let value = *typevar;
-//    *typevar += 1;
-//    Box::new(Ty::GeneratedVar(value))
-//}
-//
-//fn resolve_symbols<'a, 'b>(source: &'b Decl<'a>, scope: &mut Node<Scope<'a, 'b>>) {
-//    todo!()
-//    match source {
-//        Decl::Variable{pattern, ..} => 
-//        {
-//            let identifiers = crate::parser::identifiers_from_pattern(pattern.as_ref());
-//            for id in identifiers {
-//                scope.value.values.insert(id.fragment(), source);
-//            }
-//        },
-//        Decl::Function{name, ..} => {
-//            scope.value.values.insert(name, source);
-//        },
-//        Decl::Operator{name, ..} => {
-//            if let Token::Identifier(symbol) = *name {
-//                scope.value.values.insert(symbol.fragment(), source);
-//            }
-//        },
-//        Decl::Module{name, ..} => {
-//            if let Token::Identifier(symbol) = *name {
-//                scope.value.types.insert(symbol.fragment(), source);
-//            }
-//        },
-//        Decl::Class{class, ..} => {
-//            if let Token::Identifier(symbol) = *class {
-//                scope.value.types.insert(symbol.fragment(), source);
-//            }
-//        },
-//        Decl::Implementation{class, ..} => {
-//            if let Token::Identifier(symbol) = *class {
-//                scope.value.types.insert(symbol.fragment(), source);
-//            }
-//        },
-//        Decl::NewType{defined, replacing} => {
-//            todo!()
-//        },
-//        Decl::Struct{name, members} => {
-//            todo!()
-//        },
-//        Decl::Union{name, variants} => {
-//            todo!()
-//        },
-//        Decl::Expr(expr) => resolve_expression(expr.as_ref(), scope),
-//        Decl::Error => ()
-//    }
-//}
-//
-//fn resolve_expression<'a, 'b>(expr: &'b Expr<'a>, scope: &mut Node<Scope<'a, 'b>>) {
-//    todo!()
-//    match expr {
-//        Expr::If { cond, true_branch, else_branch } => {
-//            resolve_expression(cond.as_ref(), scope);
-//            resolve_expression(true_branch.as_ref(), scope);
-//            match else_branch {
-//                None => (),
-//                Some(else_branch) => resolve_expression(else_branch.as_ref(), scope)
-//            }
-//        },
-//        Expr::While { cond, loop_ } => {
-//            resolve_expression(cond.as_ref(), scope);
-//            resolve_expression(loop_.as_ref(), scope);
-//        },
-//        Expr::Loop { loop_ } => {
-//            resolve_expression(loop_.as_ref(), scope);
-//        },
-//        Expr::Switch{expr, arms} => {
-//            todo!()
-//        },
-//        Expr::Assignment { assigned, value } => todo!(),
-//        Expr::Literal(literal_token) => todo!(),
-//        Expr::Identifier(identifier_token) => {
-//            if let Token::Identifier(str) = identifier_token {
-//                let id = find_in_scope(str, scope, Namespace::Value);
-//                if id.is_none() {
-//                    println!("Cannot find variable {} in scope!", str);
-//                }
-//            }
-//            else {
-//                unreachable!()
-//            }
-//        },
-//        Expr::Placeholder => {
-//            
-//        },
-//        Expr::Tuple(expr_list) => {
-//            for expr in expr_list {
-//                resolve_expression(expr.as_ref(), scope);
-//            }
-//        },
-//        Expr::Block{declarations, ret} => {
-//            let block_scope = scope.insert_child(Scope::new());
-//            for decl in declarations {
-//                resolve_symbols(decl.as_ref(), block_scope);
-//            }
-//
-//            match ret {
-//                Some(ret) => resolve_expression(ret.as_ref(), scope),
-//                None => ()
-//            }
-//        },
-//        Expr::ArrayConstructor(array_values) => {
-//            for value in array_values {
-//                resolve_expression(value.as_ref(), scope);
-//            }
-//        },
-//        Expr::Unsafe(unsafe_expr) => {
-//            resolve_expression(unsafe_expr.as_ref(), scope);
-//        },
-//        Expr::Return(return_expr) => {
-//            resolve_expression(return_expr.as_ref(), scope);
-//        },
-//        Expr::Dereference(dereferenced_expr) => {
-//            resolve_expression(dereferenced_expr.as_ref(), scope);
-//        },
-//        Expr::Reference{ref_, mutable} => {
-//            resolve_expression(ref_.as_ref(), scope);
-//        },
-//        Expr::Prefix{op, expr} 
-//        | Expr::Postfix{op, expr} => todo!(),
-//        Expr::Binary{expr1, op, expr2} => todo!(),
-//        Expr::FieldCall(expr, field) => todo!(),
-//        Expr::FunctionCall{function, args} => todo!(),
-//        Expr::ArrayIndex{array, arg} => todo!(),
-//        Expr::StructInit{id, args} => todo!(),
-//        _ => unimplemented!()
-//    }
-//}
-//
-//fn pattern_to_type<'a, 'b>(pattern: &'b Pattern<'a>, scope: &mut Node<Scope<'a, 'b>>) -> Box<Ty<'a>> {
-//    match pattern {
-//        Pattern::Identifier(_)
-//         |Pattern::Literal(_) => new_type_var(scope),
-//        Pattern::Tuple(pattern_list) => Box::new(Ty::Tuple(
-//            pattern_list.iter().map(|x| pattern_to_type(x, scope)).collect()
-//        )),
-//        Pattern::VariantUnwrap(variant, exprs) => {
-//            //return to this when you figure out how to check if a variant exists
-//            todo!()
-//        },
-//        Pattern::Placeholder => new_type_var(scope),
-//        Pattern::Array(pattern_list) => {
-//            let mut type_list = Vec::new();
-//            for pattern in pattern_list {
-//                type_list.push(pattern_to_type(pattern.as_ref(), scope));
-//            }
-//            //change this line to an error after you figure out how to proccess errors in type checking
-//            assert!(type_list.windows(2).all(|w| w[0] == w[1]));
-//
-//            let array_type = match type_list.pop() {
-//                None => new_type_var(scope),
-//                Some(x) => x
-//            };
-//            Box::new(Ty::Array(array_type, None))
-//        },
-//        Pattern::Error => todo!()
-//    }
-//}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LifetimeID(usize);
+impl LifetimeID {
+    fn increment(&mut self) -> Self {
+        self.0 += 1;
+        *self
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Type {
+    Applied(Box<Type>, Vec<Type>), //used for all higher-order types, including functions, slices, and tuples
+    Basic(TypeIdx),                //Represents a unique type that has a definition
+    Array(Option<usize>),          //[] or [1]
+    Tuple(usize),                  //(), (,), (,,), etc.
+    Reference { mutable: bool },   //& and &mut
+    Pointer { mutable: bool },     //% and %mut
+    TypeVar(TypeVarID),            // 'T
+    Lifetime(LifetimeID),          // #a
+    Arrow,                         // (->)
+    MutArrow,                      // (*>)
+    OnceArrow,                     // (+>)
+    Struct{values: Vec<(SmolStr, Type)>, complete: bool}
+}
+
+const TYPE_BOOL: usize = 0;
+const TYPE_I8: usize = 1;
+const TYPE_I16: usize = 2;
+const TYPE_I32: usize = 3;
+const TYPE_I64: usize = 4;
+const TYPE_I128: usize = 5;
+const TYPE_ISIZE: usize = 6;
+const TYPE_U8: usize = 7;
+const TYPE_U16: usize = 8;
+const TYPE_U32: usize = 9;
+const TYPE_U64: usize = 10;
+const TYPE_U128: usize = 11;
+const TYPE_USIZE: usize = 12;
+const TYPE_F32: usize = 13;
+const TYPE_F64: usize = 14;
+const TYPE_CHAR: usize = 15;
+const TYPE_STR: usize = 16;
+
+impl Type {
+    fn lower(
+        t: &crate::ast::Type,
+        scopes: &Vec<&SymbolTable>,
+        vartypes: &mut usize,
+    ) -> Option<Self> {
+        let result = match t {
+            ast::Type::Missing => return None,
+            ast::Type::Unit => Self::Tuple(0),
+            ast::Type::Function {
+                arrow,
+                input,
+                output,
+            } => {
+                let arrow = Box::new(match arrow {
+                    ArrowType::Missing => return None,
+                    ArrowType::Arrow => Self::Arrow,
+                    ArrowType::MutArrow => Self::MutArrow,
+                    ArrowType::OnceArrow => Self::OnceArrow,
+                });
+                let input = Self::lower(input, scopes, vartypes)?;
+                let output = Self::lower(output, scopes, vartypes)?;
+                Self::Applied(arrow, vec![input, output])
+            }
+            ast::Type::Applied { applied, type_vars } => {
+                let applied = Box::new(Self::lower(applied, scopes, vartypes)?);
+                let type_vars = type_vars
+                    .iter()
+                    .map(|x| Self::lower(x, scopes, vartypes))
+                    .flatten()
+                    .collect();
+                Self::Applied(applied, type_vars)
+            }
+            ast::Type::Reference { mutable, type_ } => {
+                let type_ = Self::lower(type_, scopes, vartypes)?;
+                Self::Applied(Box::new(Self::Reference { mutable: *mutable }), vec![type_])
+            }
+            ast::Type::Pointer { mutable, type_ } => {
+                let type_ = Self::lower(type_, scopes, vartypes)?;
+                Self::Applied(Box::new(Self::Pointer { mutable: *mutable }), vec![type_])
+            }
+            ast::Type::Array { type_, size } => {
+                let str = match size {
+                    None => None,
+                    Some(t) => match t.str().parse::<usize>() {
+                        Ok(size) => Some(size),
+                        Err(_) => None,
+                    },
+                };
+                let array = Box::new(Self::Array(str));
+                let type_ = Self::lower(type_, scopes, vartypes)?;
+                Self::Applied(array, vec![type_])
+            }
+            ast::Type::Tuple(types) => {
+                let size = types.len();
+                let tuple = Box::new(Self::Tuple(size));
+                let types: Vec<Self> = types
+                    .iter()
+                    .map(|x| Self::lower(x, scopes, vartypes))
+                    .flatten()
+                    .collect();
+                if size != types.len() {
+                    return None;
+                } else {
+                    Self::Applied(tuple, types)
+                }
+            }
+            ast::Type::Lifetime(_) => {
+                let x = *vartypes;
+                *vartypes += 1;
+                Self::Lifetime(LifetimeID(x))
+            }
+            ast::Type::Basic(name) => {
+                macro_rules! name_match {
+                    ($obj: expr, $($str: pat => $type:ident),*) => {
+                        match $obj {
+                            $(
+                                $str => return Some(Type::Basic($type.into())),
+                            )*
+                            _ => ()
+                        }
+                    }
+                }
+                name_match!{
+                    name.str(),
+                    "bool" => TYPE_BOOL,
+                    "i8" => TYPE_I8,
+                    "i16" => TYPE_I16,
+                    "i32" => TYPE_I32,
+                    "i64" => TYPE_I64,
+                    "i128" => TYPE_I128,
+                    "isize" => TYPE_ISIZE,
+                    "u8" => TYPE_U8,
+                    "u16" => TYPE_U16,
+                    "u32" => TYPE_U32,
+                    "u64" => TYPE_U64,
+                    "u128" => TYPE_U128,
+                    "usize" => TYPE_USIZE,
+                    "f32" => TYPE_F32,
+                    "f64" => TYPE_F64,
+                    "char" => TYPE_CHAR,
+                    "str" => TYPE_STR
+                };
+                let mut id: Option<TypeIdx> = None;
+                for scope in scopes.iter().rev() {
+                    if id.is_some() {
+                        break;
+                    } else {
+                        id = scope.find_type(name.str());
+                    }
+                }
+                match id {
+                    None => return None,
+                    Some(id) => Self::Basic(id),
+                }
+            }
+            ast::Type::Var(_) => {
+                new_type_var(vartypes)
+            }
+        };
+        Some(result)
+    }
+}
+
+fn new_type_var(count: &mut usize) -> Type{
+    let x = *count;
+    *count += 1;
+    Type::TypeVar(TypeVarID(x))
+}
+
+fn identifier_definition<'a>(
+    scopes: &'a Vec<&SymbolTable>,
+    id: &str,
+    index: usize,
+) -> Option<&'a Decl> {
+    for scope in scopes.iter().rev() {
+        match scope.find_identifier(id, index) {
+            None => (),
+            x => return x,
+        }
+    }
+    return None;
+}
+
+fn type_constraints(
+    mut source: ast::SourceFile,
+    expr_types: &mut IndexVec<ExprIdx, Option<Type>>,
+) -> Vec<(Type, Type)> {
+    let mut symbol_tables = vec![&source.symbol_names];
+    let mut type_indices = vec![];
+    let mut var_types = 0;
+    for decl in &source.top_level_declarations {
+        type_indices.append(&mut decl_type_constraints(
+            *decl,
+            &mut symbol_tables,
+            &source.declarations,
+            &source.expressions,
+            expr_types,
+            &mut var_types,
+        ));
+    }
+    type_indices
+}
+
+fn function_return_type_constraints<'a>(
+    body: crate::ast::ExprIdx,
+    scopes: &mut Vec<&'a SymbolTable>,
+    declarations: &'a IndexVec<DeclIdx, Decl>,
+    expressions: &'a IndexVec<ExprIdx, Expr>,
+    expr_types: &mut IndexVec<ExprIdx, Option<Type>>,
+    var_types: &mut usize,
+) -> Vec<(Type, Type)> {
+    match &expressions[body] {
+        Expr::Block{symbols, declarations: decls, terminator} => {
+            scopes.push(symbols);
+            let mut constraints: Vec<(Type, Type)> = vec![];
+            for declaration in decls {
+                match &declarations[*declaration] {
+                    Decl::Variable {value, ..} => {
+                        match value {
+                            None => (),
+                            Some(expr_id) => {
+                                constraints.append(&mut function_return_type_constraints(*expr_id, scopes, declarations, expressions, expr_types, var_types));
+                            }
+                        }
+                    },
+                    Decl::Expr(expr) => constraints.append(&mut function_return_type_constraints(*expr, scopes, declarations, expressions, expr_types, var_types)),
+                    _ => ()
+                }
+            }
+            match terminator {
+                None => (),
+                Some(terminator) => constraints.append(&mut function_return_type_constraints(*terminator, scopes, declarations, expressions, expr_types, var_types))
+            };
+            scopes.pop();
+            constraints
+        },
+        Expr::Unit => vec![],
+        Expr::Placeholder => vec![],
+        Expr::Grouping(expr_id) => function_return_type_constraints(*expr_id, scopes, declarations, expressions, expr_types, var_types),
+        Expr::Tuple(exprs)
+        | Expr::ArrayConstructor(exprs) => {
+            exprs.iter().flat_map(|expr| function_return_type_constraints(*expr, scopes, declarations, expressions, expr_types, var_types)).collect()
+        },
+        Expr::ArrayIndex { indexed, index } => {
+            let mut constraints = function_return_type_constraints(*indexed, scopes, declarations, expressions, expr_types, var_types);
+            constraints.append(&mut function_return_type_constraints(*index, scopes, declarations, expressions, expr_types, var_types));
+            constraints
+        },
+        Expr::If { condition, then, else_ } => {
+            let mut constraints = function_return_type_constraints(*condition, scopes, declarations, expressions, expr_types, var_types);
+            constraints.append(&mut function_return_type_constraints(*then, scopes, declarations, expressions, expr_types, var_types));
+            match else_ {
+                None => (),
+                Some(else_) => constraints.append(&mut function_return_type_constraints(*else_, scopes, declarations, expressions, expr_types, var_types))
+            };
+            constraints
+        },
+        Expr::While { condition, body } => {
+            let mut constraints = function_return_type_constraints(*condition, scopes, declarations, expressions, expr_types, var_types);
+            constraints.append(&mut function_return_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types));
+            constraints
+        },
+        Expr::Loop(body) => function_return_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types),
+        Expr::Assignment { assigned, value } => {
+            let mut constraints = function_return_type_constraints(*assigned, scopes, declarations, expressions, expr_types, var_types);
+            constraints.append(&mut function_return_type_constraints(*value, scopes, declarations, expressions, expr_types, var_types));
+            constraints
+        },
+        Expr::Identifier { .. } => vec![],
+        Expr::Literal(_) => vec![],
+        Expr::Unsafe(expr)
+        | Expr::Prefix {expr, .. }
+        | Expr::Dereference { expr }
+        | Expr::Reference {expr, .. } => function_return_type_constraints(*expr, scopes, declarations, expressions, expr_types, var_types),
+        Expr::Return(expr_id) => vec![(expr_types[body].clone().unwrap(), expr_types[*expr_id].clone().unwrap())],
+        Expr::Path { lhs, rhs }
+        | Expr::FieldCall { lhs, rhs } 
+        | Expr::Binary {lhs, rhs, ..} => {
+            let mut constraints = function_return_type_constraints(*lhs, scopes, declarations, expressions, expr_types, var_types);
+            constraints.append(&mut function_return_type_constraints(*rhs, scopes, declarations, expressions, expr_types, var_types));
+            constraints
+        },
+        Expr::FunctionCall { lhs, arguments }
+        | Expr::StructInit { lhs, arguments } => {
+            let mut constraints = function_return_type_constraints(*lhs, scopes, declarations, expressions, expr_types, var_types);
+            for arg in arguments {
+                constraints.append(&mut function_return_type_constraints(*arg, scopes, declarations, expressions, expr_types, var_types));
+            }
+            constraints
+        }
+        Expr::Lambda { body, .. } => function_return_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types),
+        _ => unreachable!()
+    }
+}
+
+fn decl_type_constraints<'a>(
+    source: crate::ast::DeclIdx,
+    scopes: &mut Vec<&'a SymbolTable>,
+    declarations: &'a IndexVec<DeclIdx, Decl>,
+    expressions: &'a IndexVec<ExprIdx, Expr>,
+    expr_types: &mut IndexVec<ExprIdx, Option<Type>>,
+    var_types: &mut usize,
+) -> Vec<(Type, Type)> {
+    if let Some(decl) = declarations.get(source) {
+        match decl {
+            Decl::Missing => vec![],
+            Decl::Variable {
+                mutable,
+                pattern,
+                type_,
+                value,
+            } => {
+                match value {
+                    Some(value) => {
+                        let mut result = expr_type_constraints(*value, scopes, declarations, expressions, expr_types, var_types);
+                        if let Some(type_) = type_ {
+                                let type_ = Type::lower(type_, scopes, var_types);
+                                if let Some(type_) = type_ {
+                                    result.push((type_.clone(), expr_types[*value].clone().unwrap()));
+                                    result
+                                }
+                                else {
+                                    expr_type_constraints(*value, scopes, declarations, expressions, expr_types, var_types)
+                                }
+                            }
+                            else {
+                                expr_type_constraints(*value, scopes, declarations, expressions, expr_types, var_types)
+                            }
+                        },
+                    None => vec![]
+                }
+            },
+            Decl::Function {
+                name,
+                args,
+                type_,
+                symbols,
+                body,
+            } => {
+                scopes.push(symbols);
+                match body {
+                    None => vec![],
+                    Some(body) => {
+                        let mut constraints = expr_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types);
+                        scopes.pop();
+                        let mut types = vec![];
+                        for arg in &symbols.value_declarations
+                        {
+                            match arg {
+                                Decl::Variable{type_, ..} => types.push(Type::lower(type_.as_ref().unwrap(), scopes, var_types).unwrap()),
+                                _ => unreachable!()
+                            };
+                        }
+                        let mut return_type = expr_types[*body].clone().unwrap();
+                        for type_ in types.into_iter().rev() {
+                            return_type = Type::Applied(Box::new(Type::Arrow), vec![type_, return_type]);
+                        }
+                        dbg!(type_);
+                        constraints.push((return_type, Type::lower(type_.as_ref().unwrap(), scopes, var_types).unwrap()));
+                        constraints
+                    }
+                }
+            }
+            Decl::Operator {
+                fixity,
+                op,
+                precedence,
+            } => vec![],
+            Decl::Class {
+                constraints,
+                defined_class,
+                defined_type,
+                body,
+            } => expr_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types),
+            Decl::Implementation {
+                constraints,
+                defined_class,
+                defined_type,
+                body,
+            } => expr_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types),
+            Decl::Module { name, body } => expr_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types),
+            Decl::Union { defined, variants } => vec![],
+            Decl::Struct { defined, body } => vec![],
+            Decl::Using { path } => vec![],
+            Decl::Expr(expr) => expr_type_constraints(
+                *expr,
+                scopes,
+                declarations,
+                expressions,
+                expr_types,
+                var_types,
+            ),
+        }
+    } else {
+        unreachable!("invalid Declaration Index!");
+    }
+}
+
+fn expr_type_constraints<'a>(
+    source: ExprIdx,
+    scopes: &mut Vec<&'a SymbolTable>,
+    declarations: &'a IndexVec<DeclIdx, Decl>,
+    expressions: &'a IndexVec<ExprIdx, Expr>,
+    expr_types: &mut IndexVec<ExprIdx, Option<Type>>,
+    var_types: &mut usize,
+) -> Vec<(Type, Type)> {
+    if let Some(expr) = expressions.get(source) {
+        match expr {
+            Expr::Missing => vec![],
+            Expr::Unit => {
+                expr_types[source] = Some(Type::Tuple(0));
+                vec![]
+            }
+            Expr::Placeholder => {
+                expr_types[source] = Some(new_type_var(var_types));
+                vec![]
+            }
+            Expr::Block {
+                symbols,
+                declarations: decls,
+                terminator,
+            } => {
+                scopes.push(symbols);
+                let mut constraints = vec![];
+                for decl in decls {
+                    constraints.append(&mut decl_type_constraints(
+                        *decl,
+                        scopes,
+                        declarations,
+                        expressions,
+                        expr_types,
+                        var_types,
+                    ));
+                }
+                match terminator {
+                    None => expr_types[source] = Some(Type::Tuple(0)),
+                    Some(expr) => {
+                        let result = constraints.append(&mut expr_type_constraints(
+                            *expr,
+                            scopes,
+                            declarations,
+                            expressions,
+                            expr_types,
+                            var_types,
+                        ));
+                        expr_types[source] = expr_types[*expr].clone();
+                        result
+                    }
+                };
+                scopes.pop();
+                constraints
+            }
+            Expr::Binary {
+                op,
+                op_idx,
+                lhs,
+                rhs,
+            } => {
+                let mut result = expr_type_constraints(
+                    *lhs,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                );
+                result.append(&mut expr_type_constraints(
+                    *rhs,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                ));
+                let lhs_type = expr_types[*lhs].clone().unwrap();
+                let rhs_type = expr_types[*rhs].clone().unwrap();
+                let out = Type::Applied(
+                    Box::new(Type::Arrow),
+                    vec![rhs_type, new_type_var(var_types)],
+                );
+                let func_type = Type::Applied(Box::new(Type::Arrow), vec![lhs_type, out]);
+
+                let decl = identifier_definition(&scopes, op.str(), op_idx.unwrap());
+                let operator_type = if let Some(decl) = decl {
+                    match decl {
+                        Decl::Variable { type_, .. } | Decl::Function { type_, .. } => {
+                            match type_ {
+                                None => None,
+                                Some(t) => Type::lower(&t, scopes, var_types),
+                            }
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                match operator_type {
+                    None => (),
+                    Some(type_) => result.push((func_type, type_.clone())),
+                };
+                result
+            }
+            Expr::Grouping(expr) => {
+                let result = expr_type_constraints(
+                    *expr,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                );
+                expr_types[source] = expr_types[*expr].clone();
+                result
+            }
+            Expr::Prefix { op, op_idx, expr } => {
+                let mut result = expr_type_constraints(
+                    *expr,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                );
+                let decl = identifier_definition(&scopes, op.str(), op_idx.unwrap());
+
+                let expr_type = expr_types[*expr].clone().unwrap();
+                let func_type = Type::Applied(
+                    Box::new(Type::Arrow),
+                    vec![expr_type, new_type_var(var_types)],
+                );
+
+                let operator_type = if let Some(decl) = decl {
+                    match decl {
+                        Decl::Variable { type_, .. } | Decl::Function { type_, .. } => {
+                            match type_ {
+                                None => None,
+                                Some(t) => Type::lower(&t, scopes, var_types),
+                            }
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                match operator_type {
+                    None => (),
+                    Some(type_) => result.push((func_type, type_.clone())),
+                };
+                result
+            }
+            Expr::Tuple(exprs) => {
+                let result: Vec<_> = exprs
+                    .iter()
+                    .flat_map(|expr| {
+                        expr_type_constraints(
+                            *expr,
+                            scopes,
+                            declarations,
+                            expressions,
+                            expr_types,
+                            var_types,
+                        )
+                    })
+                    .collect();
+                let tuple_types: Vec<_> = exprs
+                    .iter()
+                    .map(|expr| expr_types[*expr].clone().unwrap())
+                    .collect();
+                expr_types[source] = Some(Type::Applied(
+                    Box::new(Type::Tuple(tuple_types.len())),
+                    tuple_types,
+                ));
+                result
+            }
+            Expr::ArrayConstructor(exprs) => {
+                let mut result: Vec<_> = exprs.into_iter().flat_map(|x| 
+                    expr_type_constraints(*x, 
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types
+                )).collect();
+                let var = new_type_var(var_types);
+                let array_type = Type::Applied(Box::new(Type::Array(Some(exprs.len()))), vec![var.clone()]);
+                for expr in exprs {
+                    result.push((var.clone(), expr_types[*expr].clone().unwrap()));
+                }
+                expr_types[source] = Some(array_type);
+                result
+            },
+            Expr::ArrayIndex { indexed, index } => {
+                todo!()
+            },
+            Expr::If {
+                condition,
+                then,
+                else_,
+            } => {
+                let mut result = expr_type_constraints(
+                    *condition,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                );
+                result.append(&mut expr_type_constraints(
+                    *then,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                ));
+                match else_ {
+                    None => (),
+                    Some(else_) => {
+                        result.append(&mut expr_type_constraints(
+                            *then,
+                            scopes,
+                            declarations,
+                            expressions,
+                            expr_types,
+                            var_types,
+                        ));
+                        result.push((
+                            expr_types[*then].clone().unwrap(),
+                            expr_types[*else_].clone().unwrap(),
+                        ))
+                    }
+                };
+                result.push((expr_types[*condition].clone().unwrap(), Type::Basic(TYPE_BOOL.into())));
+                result
+            }
+            Expr::While { condition, body } => {
+                let mut result = expr_type_constraints(
+                    *condition,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                );
+                result.append(&mut expr_type_constraints(
+                    *body,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                ));
+                result.push((expr_types[*condition].clone().unwrap(), Type::Basic(TYPE_BOOL.into())));
+                result
+            }
+            Expr::Loop(expr) => {
+                let result = expr_type_constraints(
+                    *expr,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                );
+                expr_types[source] = expr_types[*expr].clone();
+                result
+            }
+            Expr::Assignment { assigned, value } => {
+                let mut result = expr_type_constraints(
+                    *assigned,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                );
+                result.append(&mut expr_type_constraints(
+                    *value,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                ));
+                result.push((expr_types[*assigned].clone().unwrap(), expr_types[*value].clone().unwrap()));
+                result
+            },
+            Expr::Identifier { name: id, index } => {
+                assert!(index.is_some());
+                let decl = identifier_definition(&scopes, id.str(), index.unwrap());
+                let identifier_type = if let Some(decl) = decl {
+                    match decl {
+                        Decl::Variable { type_, .. } | Decl::Function { type_, .. } => {
+                            match type_ {
+                                None => {
+                                    Some(new_type_var(var_types))
+                                },
+                                Some(t) => Type::lower(&t, scopes, var_types),
+                            }
+                        },
+                        _ => {
+                            Some(new_type_var(var_types))
+                        },
+                    }
+                } else {
+                    None
+                };
+                expr_types[source] = identifier_type;
+                vec![]
+            }
+            Expr::Literal(t) => {
+                match t.kind() {
+                    TokenKind::True | TokenKind::False => expr_types[source] = Some(Type::Basic(TYPE_BOOL.into())),
+                    TokenKind::Int | TokenKind::HexInt | TokenKind::OctInt | TokenKind::BinInt => {
+                        expr_types[source] = Some(Type::Basic(TYPE_I32.into()))
+                    }
+                    TokenKind::Float => expr_types[source] = Some(Type::Basic(TYPE_F32.into())),
+                    TokenKind::Double => expr_types[source] = Some(Type::Basic(TYPE_F64.into())),
+                    TokenKind::Char => expr_types[source] = Some(Type::Basic(TYPE_CHAR.into())),
+                    TokenKind::String => expr_types[source] = Some(Type::Basic(TYPE_STR.into())),
+                    _ => unreachable!(),
+                };
+                vec![]
+            }
+            Expr::Unsafe(expr) => {
+                let result = expr_type_constraints(
+                    *expr,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                );
+                expr_types[source] = expr_types[*expr].clone();
+                result
+            }
+            Expr::Dereference { expr } => {
+                let mut result = expr_type_constraints(
+                    *expr,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                );
+                expr_types[source] = Some(new_type_var(var_types));
+                let type_ = Type::Applied(
+                    Box::new(new_type_var(var_types)),
+                    vec![expr_types[source].clone().unwrap()],
+                );
+                result.push((type_, expr_types[*expr].clone().unwrap()));
+                result
+            }
+            Expr::Reference { mutable, expr } => {
+                let result = expr_type_constraints(
+                    *expr,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                );
+                let ref_type = Type::Applied(
+                    Box::new(Type::Reference { mutable: *mutable }),
+                    vec![expr_types[*expr].clone().unwrap()],
+                );
+                expr_types[source] = Some(ref_type);
+                result
+            }
+            Expr::Return(expr) => {
+                expr_types[source] = Some(Type::Tuple(0));
+                expr_type_constraints(
+                    *expr,
+                    scopes,
+                    declarations,
+                    expressions,
+                    expr_types,
+                    var_types,
+                )
+            }
+            Expr::Path { lhs, rhs } => {
+                let scope = namespace_from_path(*lhs, scopes, declarations, expressions);
+                match scope {
+                    None => todo!("handle error for failure path"),
+                    Some(scope) => {
+                        let mut scopes = vec![scope];
+                        expr_type_constraints(
+                            *rhs,
+                            &mut scopes,
+                            declarations,
+                            expressions,
+                            expr_types,
+                            var_types,
+                        )
+                    }
+                }
+            }
+            Expr::FunctionCall { lhs, arguments } => {
+                let mut constraints = expr_type_constraints(*lhs, scopes, declarations, expressions, expr_types, var_types);
+                let fn_type = expr_types[*lhs].clone().unwrap();
+                for arg in arguments {
+                    constraints.append(&mut expr_type_constraints(*arg, scopes, declarations, expressions, expr_types, var_types));
+                }
+                let mut return_type = new_type_var(var_types);
+                dbg!(&arguments);
+                for arg in arguments.iter().rev() {
+                    let arg_type = expr_types[*arg].clone().unwrap();
+                    return_type = Type::Applied(Box::new(Type::Arrow), vec![arg_type, return_type]);
+                }
+                constraints.push((fn_type, return_type));
+                constraints
+            },
+            Expr::Lambda { body, symbols, args} => {
+                scopes.push(symbols);
+                let constraints = expr_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types);
+                let mut return_type = expr_types[*body].clone().unwrap();
+                for arg in args {
+                    return_type = Type::Applied(Box::new(Type::Arrow), vec![new_type_var(var_types) /*todo!() replace this with type of each of the arguments */, return_type]);
+                }
+                expr_types[source] = Some(return_type);
+                scopes.pop();
+                constraints
+            },
+            Expr::StructInit { lhs, arguments } => {
+                
+                todo!()
+            },
+            Expr::FieldCall { lhs, rhs } => {
+                let mut constraints = expr_type_constraints(*lhs, scopes, declarations, expressions, expr_types, var_types);
+                let name = match &expressions[*rhs] {
+                    ast::Expr::Identifier{name, ..} => name.clone(),
+                    _ => unreachable!()
+                };
+                let rhs_type = new_type_var(var_types);
+                expr_types[*rhs] = Some(rhs_type.clone());
+                constraints.push((expr_types[*lhs].clone().unwrap(), Type::Struct{values: vec![(name.str().into(), rhs_type)], complete: false}));
+                constraints
+            },
+        }
+    } else {
+        unreachable!("Invalid Expression Index!")
+    }
+}
+/// expects only the parts of the path that are namespaces.
+/// for example, if the full path is core::mem::x,
+/// the path provided to this function would be core::mem.
+fn namespace_from_path<'a>(
+    source: ExprIdx,
+    scopes: &mut Vec<&'a SymbolTable>,
+    declarations: &'a IndexVec<DeclIdx, Decl>,
+    expressions: &'a IndexVec<ExprIdx, Expr>,
+) -> Option<&'a SymbolTable> {
+    match expressions.get(source)? {
+        Expr::Identifier { name, .. } => {
+            for scope in scopes.iter().rev() {
+                let scope = scope.find_namespace(name.str());
+                if scope.is_some() {
+                    return scope;
+                }
+            }
+        }
+        Expr::Path { lhs, rhs } => {
+            let scope = namespace_from_path(*lhs, scopes, declarations, expressions)?;
+            if let Some(Expr::Identifier { name, .. }) = expressions.get(*rhs) {
+                return scope.find_namespace(name.str());
+            }
+        }
+        _ => unreachable!(),
+    };
+    None
+}
+
+#[derive(Clone, Debug)]
+struct RewriteRule{type_replaced: Type, replaced_by: Type}
+
+fn solve_constraints(constraints: Vec<(Type, Type)>) -> (Vec<RewriteRule>, Vec<String>){
+    let mut constraints: VecDeque<_> = constraints.into();
+    let mut rewrite_rules = vec![];
+    let mut errors = vec![];
+    while !constraints.is_empty() {
+        let constraint = constraints.pop_front();
+        if let Some(constraint) = constraint {
+            match constraint {
+                (Type::Applied(t1, ts1), Type::Applied(t2, ts2)) => {
+                    constraints.push_back((*t1, *t2));
+                    if ts1.len() != ts2.len() {
+                        errors.push(format!("Types do not have the same number of type parameters!"));
+                    } else {
+                        let applied =
+                            Iterator::zip(ts1.into_iter(), ts2.into_iter()).collect::<Vec<_>>();
+                        for x in applied {
+                            constraints.push_back(x)
+                        }
+                    }
+                }
+                (Type::Basic(x), Type::Basic(y)) => {
+                    if x != y {
+                        errors.push(format!("Types {:?} and {:?} do not match!", x, y));
+                    }
+                }
+                (Type::TypeVar(var_id), other_type) | (other_type, Type::TypeVar(var_id)) => {
+                    rewrite_rules.push(RewriteRule{type_replaced: Type::TypeVar(var_id), replaced_by: other_type.clone()});
+                    constraints.iter_mut().for_each(|(x, y)| {
+                        if *x == Type::TypeVar(var_id) {
+                            *x = other_type.clone();
+                        }
+                        if *y == Type::TypeVar(var_id) {
+                            *y = other_type.clone();
+                        }
+                    });
+                }
+                (Type::Array(size1), Type::Array(size2)) => match (size1, size2) {
+                    (Some(x), Some(y)) => {
+                        if x != y {
+                            errors.push(format!("Found different array lengths {:?} and {:?}", x, y))
+                        }
+                    },
+                    _ => (),
+                },
+                (Type::Tuple(size1), Type::Tuple(size2)) => {
+                    if size1 != size2 {
+                        errors.push(format!("Tuples of size {:?} and {:?} do not match!", size1, size2))
+                    }
+                },
+                _ => (),
+            }
+        }
+    };
+    (rewrite_rules, errors)
+}
+
+pub fn typecheck(source: &str) {
+    let (mut ast, errors) = crate::ast::into_ast(source);
+    let mut expr_types: IndexVec<ExprIdx, Option<Type>> = index_vec![None; ast.expressions.len()];
+    for err in &errors {
+        println!("Error: {}", err);
+    }
+    let constraints = type_constraints(ast, &mut expr_types);
+    println!("{:?}", constraints);
+    let (rewrite_rules, errors) = solve_constraints(constraints);
+    for err in &errors {
+        println!("Error: {}", err);
+    }
+    println!("{:?}", rewrite_rules);
+    todo!()
+}
