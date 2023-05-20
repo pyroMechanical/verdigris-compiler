@@ -1,4 +1,4 @@
-use crate::parser::{ParsedTree, TokenKind, Verdigris};
+use crate::parser::types::{ParsedTree, TokenKind, Verdigris};
 
 pub type SyntaxNode = rowan::SyntaxNode<Verdigris>;
 pub type SyntaxToken = rowan::SyntaxToken<Verdigris>;

@@ -48,7 +48,7 @@ fn compile_file(path: PathBuf) {
     match source {
         Ok(source) => match compile::compile_source(source.as_str()) {
             Ok(_) => println!("Compile Success!"),
-            Err(e) => ()
+            Err(_e) => ()
         }
         Err(e) => eprintln!("{}", e)
     }

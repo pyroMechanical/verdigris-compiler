@@ -1,5 +1,5 @@
 use crate::ast;
-use crate::parser::TokenKind;
+use crate::parser::types::TokenKind;
 use ast::{ArrowType, Decl, DeclIdx, Expr, ExprIdx, SymbolTable, TypeIdx};
 use index_vec::{index_vec, IndexVec};
 use smol_str::SmolStr;
@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TypeVarID(usize);
 impl TypeVarID {
-    fn increment(&mut self) -> Self {
+    fn _increment(&mut self) -> Self {
         self.0 += 1;
         *self
     }
@@ -17,7 +17,7 @@ impl TypeVarID {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LifetimeID(usize);
 impl LifetimeID {
-    fn increment(&mut self) -> Self {
+    fn _increment(&mut self) -> Self {
         self.0 += 1;
         *self
     }
@@ -201,7 +201,7 @@ fn identifier_definition<'a>(
 }
 
 fn type_constraints(
-    mut source: ast::SourceFile,
+    source: ast::SourceFile,
     expr_types: &mut IndexVec<ExprIdx, Option<Type>>,
 ) -> Vec<(Type, Type)> {
     let mut symbol_tables = vec![&source.symbol_names];
@@ -324,10 +324,9 @@ fn decl_type_constraints<'a>(
         match decl {
             Decl::Missing => vec![],
             Decl::Variable {
-                mutable,
-                pattern,
                 type_,
-                value,
+                value, 
+                ..
             } => {
                 match value {
                     Some(value) => {
@@ -350,11 +349,10 @@ fn decl_type_constraints<'a>(
                 }
             },
             Decl::Function {
-                name,
-                args,
                 type_,
                 symbols,
                 body,
+                ..
             } => {
                 scopes.push(symbols);
                 match body {
@@ -381,26 +379,20 @@ fn decl_type_constraints<'a>(
                 }
             }
             Decl::Operator {
-                fixity,
-                op,
-                precedence,
+                ..
             } => vec![],
             Decl::Class {
-                constraints,
-                defined_class,
-                defined_type,
                 body,
+                ..
             } => expr_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types),
             Decl::Implementation {
-                constraints,
-                defined_class,
-                defined_type,
                 body,
+                ..
             } => expr_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types),
-            Decl::Module { name, body } => expr_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types),
-            Decl::Union { defined, variants } => vec![],
-            Decl::Struct { defined, body } => vec![],
-            Decl::Using { path } => vec![],
+            Decl::Module { body, .. } => expr_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types),
+            Decl::Union { ..} => vec![],
+            Decl::Struct { .. } => vec![],
+            Decl::Using { .. } => vec![],
             Decl::Expr(expr) => expr_type_constraints(
                 *expr,
                 scopes,
@@ -608,7 +600,7 @@ fn expr_type_constraints<'a>(
                 expr_types[source] = Some(array_type);
                 result
             },
-            Expr::ArrayIndex { indexed, index } => {
+            Expr::ArrayIndex { .. } => {
                 todo!()
             },
             Expr::If {
@@ -833,14 +825,14 @@ fn expr_type_constraints<'a>(
                 scopes.push(symbols);
                 let constraints = expr_type_constraints(*body, scopes, declarations, expressions, expr_types, var_types);
                 let mut return_type = expr_types[*body].clone().unwrap();
-                for arg in args {
+                for _arg in args {
                     return_type = Type::Applied(Box::new(Type::Arrow), vec![new_type_var(var_types) /*todo!() replace this with type of each of the arguments */, return_type]);
                 }
                 expr_types[source] = Some(return_type);
                 scopes.pop();
                 constraints
             },
-            Expr::StructInit { lhs, arguments } => {
+            Expr::StructInit { .. } => {
                 
                 todo!()
             },
@@ -949,7 +941,7 @@ fn solve_constraints(constraints: Vec<(Type, Type)>) -> (Vec<RewriteRule>, Vec<S
 }
 
 pub fn typecheck(source: &str) {
-    let (mut ast, errors) = crate::ast::into_ast(source);
+    let (ast, errors) = crate::ast::into_ast(source);
     let mut expr_types: IndexVec<ExprIdx, Option<Type>> = index_vec![None; ast.expressions.len()];
     for err in &errors {
         println!("Error: {}", err);

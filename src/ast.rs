@@ -1,4 +1,4 @@
-use crate::parser::TokenKind;
+use crate::parser::types::TokenKind;
 use crate::reparse::SyntaxToken;
 use index_vec::{index_vec, IndexVec};
 use smol_str::SmolStr;
@@ -424,7 +424,7 @@ fn identifier_counts(
             | Expr::Dereference { expr }
             | Expr::Reference { expr, .. }
             | Expr::Return(expr) => identifier_counts(expr, symbols, declarations, expressions),
-            Expr::Path { lhs, rhs } => todo!(),
+            Expr::Path { lhs:_lhs, rhs:_rhs } => todo!(),
             Expr::FieldCall { lhs, .. } => {
                 identifier_counts(lhs, symbols, declarations, expressions)
             }
@@ -775,10 +775,10 @@ impl Decl {
                     declarations.push(result)
                 }
                 crate::reparse::Decl::Union(union_decl) => {
-                    declarations.push(Self::union_lower(union_decl, types))
+                    declarations.push(Self::union_lower(union_decl))
                 }
                 crate::reparse::Decl::Struct(struct_decl) => {
-                    declarations.push(Self::struct_lower(struct_decl, types))
+                    declarations.push(Self::struct_lower(struct_decl))
                 }
                 crate::reparse::Decl::Using(using_decl) => {
                     let path =
@@ -945,13 +945,13 @@ impl Decl {
         Self::Module { name, body }
     }
 
-    fn union_lower(decl: crate::reparse::Union, types: &mut IndexVec<TypeIdx, Decl>) -> Self {
+    fn union_lower(decl: crate::reparse::Union) -> Self {
         let defined = Type::lower(decl.defined_type());
         let variants = decl.variants().map(|x| Variant::lower(Some(x))).collect();
         Self::Union { defined, variants }
     }
 
-    fn struct_lower(decl: crate::reparse::Struct, types: &mut IndexVec<TypeIdx, Decl>) -> Self {
+    fn struct_lower(decl: crate::reparse::Struct) -> Self {
         let defined = Type::lower(decl.defined_type());
         let body = StructBody::lower(decl.struct_body());
         Self::Struct { defined, body }
@@ -1244,7 +1244,7 @@ impl Expr {
         declarations: &mut IndexVec<DeclIdx, Decl>,
         expressions: &mut IndexVec<ExprIdx, Expr>,
     ) -> Self {
-        let mut decls: Vec<DeclIdx> = block
+        let decls: Vec<DeclIdx> = block
             .declarations()
             .map(|x| Decl::lower(Some(x), errors, types, declarations, expressions))
             .collect();
