@@ -283,14 +283,14 @@ fn print_syntax_token(depth: usize, token: &rowan::SyntaxToken<Verdigris>) {
 type Token<'a> = (TokenKind, &'a str);
 
 #[derive(Clone)]
-pub enum Event<'a> {
+pub(crate) enum Event<'a> {
     StartNode { kind: TokenKind },
     StartNodeAt { kind: TokenKind, checkpoint: usize },
     AddToken { kind: TokenKind, text: &'a str },
     FinishNode,
 }
 
-pub struct Parser<'a, 'b> {
+pub(crate) struct Parser<'a, 'b> {
     tokens: &'b [Token<'a>],
     cursor: usize,
     pub events: Vec<Event<'a>>,
@@ -396,7 +396,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
 }
 
-pub struct TreeBuilder<'a, 'b> {
+pub(crate) struct TreeBuilder<'a, 'b> {
     builder: GreenNodeBuilder<'static>,
     tokens: &'b [Token<'a>],
     cursor: usize,
@@ -404,7 +404,7 @@ pub struct TreeBuilder<'a, 'b> {
 }
 
 impl<'a, 'b> TreeBuilder<'a, 'b> {
-    pub fn new(tokens: &'b [Token<'a>], events: Vec<Event<'a>>) -> Self {
+    pub(crate) fn new(tokens: &'b [Token<'a>], events: Vec<Event<'a>>) -> Self {
         Self {
             builder: GreenNodeBuilder::new(),
             tokens,
@@ -412,7 +412,7 @@ impl<'a, 'b> TreeBuilder<'a, 'b> {
             events,
         }
     }
-    pub fn finish(mut self) -> GreenNode {
+    pub(crate) fn finish(mut self) -> GreenNode {
         let mut reordered_events = self.events.clone();
         for (index, event) in self.events.iter().enumerate() {
             if let Event::StartNodeAt { kind, checkpoint } = event {

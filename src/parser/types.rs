@@ -1,9 +1,9 @@
 use super::data_types::{TokenKind, Parser};
-pub fn type_(parser: &mut Parser) -> bool{
+pub(crate) fn type_(parser: &mut Parser) -> bool{
     function_type(parser)
 }
 
-pub fn function_type(parser: &mut Parser) -> bool {
+pub(crate) fn function_type(parser: &mut Parser) -> bool {
     let checkpoint = parser.checkpoint();
     let mut succeeded = true;
     succeeded &= applied_type(parser);
@@ -37,7 +37,7 @@ pub fn is_type_token(token: Option<TokenKind>) -> bool {
     }
 }
 
-pub fn applied_type(parser: &mut Parser) -> bool{
+pub(crate) fn applied_type(parser: &mut Parser) -> bool{
     let checkpoint = parser.checkpoint();
     let mut succeeded = array_or_pointer_type(parser);
     if is_type_token(parser.peek()) {
@@ -50,7 +50,7 @@ pub fn applied_type(parser: &mut Parser) -> bool{
     succeeded
 }
 
-pub fn array_or_pointer_type(parser: &mut Parser) -> bool{
+pub(crate) fn array_or_pointer_type(parser: &mut Parser) -> bool{
     let checkpoint = parser.checkpoint();
     let mut succeeded = true;
     if parser.matched(TokenKind::Reference) {
@@ -91,7 +91,7 @@ pub fn array_or_pointer_type(parser: &mut Parser) -> bool{
     succeeded
 }
 
-pub fn paren_type(parser: &mut Parser) -> bool{
+pub(crate) fn paren_type(parser: &mut Parser) -> bool{
     let checkpoint = parser.checkpoint();
     let mut succeeded = true;
     if parser.matched(TokenKind::Paren) {
@@ -133,7 +133,7 @@ pub fn paren_type(parser: &mut Parser) -> bool{
     succeeded
 }
 
-pub fn basic_type(parser: &mut Parser) -> bool{
+pub(crate) fn basic_type(parser: &mut Parser) -> bool{
     let checkpoint = parser.checkpoint();
     let mut succeeded = true;
     if parser.matched(TokenKind::SingleQuote) {
@@ -155,7 +155,7 @@ pub fn basic_type(parser: &mut Parser) -> bool{
     succeeded
 }
 
-pub fn generic_type(parser: &mut Parser) {
+pub(crate) fn generic_type(parser: &mut Parser) {
     let checkpoint = parser.checkpoint();
     let mut type_ = None;
     basic_type(parser);

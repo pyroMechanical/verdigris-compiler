@@ -1,5 +1,5 @@
 use crate::parser::data_types::TokenKind;
-use crate::reparse::SyntaxToken;
+use crate::reparse::data_types::SyntaxToken;
 use index_vec::{index_vec, IndexVec};
 use smol_str::SmolStr;
 use std::collections::HashMap;
@@ -513,7 +513,7 @@ pub struct Parameter {
     type_: Option<Type>,
 }
 impl Parameter {
-    pub fn lower(param: crate::reparse::Parameter) -> Self {
+    pub fn lower(param: crate::reparse::decl::Parameter) -> Self {
         Parameter {
             pattern: Pattern::lower(param.pattern()),
             type_: param.type_().map(|x| Type::lower(Some(x))),
@@ -540,35 +540,35 @@ pub enum Pattern {
     },
 }
 impl Pattern {
-    pub fn lower(pattern: Option<crate::reparse::Pattern>) -> Self {
+    pub fn lower(pattern: Option<crate::reparse::patterns::Pattern>) -> Self {
         if let Some(pattern) = pattern {
             match pattern {
-                crate::reparse::Pattern::Unit(_) => Pattern::Unit,
-                crate::reparse::Pattern::Placeholder(_) => Pattern::Placeholder,
-                crate::reparse::Pattern::Identifier(identifier) => {
+                crate::reparse::patterns::Pattern::Unit(_) => Pattern::Unit,
+                crate::reparse::patterns::Pattern::Placeholder(_) => Pattern::Placeholder,
+                crate::reparse::patterns::Pattern::Identifier(identifier) => {
                     Self::Identifier(Token::lower(identifier.id()))
                 }
-                crate::reparse::Pattern::Literal(literal) => {
+                crate::reparse::patterns::Pattern::Literal(literal) => {
                     Self::Literal(Token::lower(literal.token()))
                 }
-                crate::reparse::Pattern::Tuple(tuple) => {
+                crate::reparse::patterns::Pattern::Tuple(tuple) => {
                     Self::Tuple(tuple.patterns().map(|x| Pattern::lower(Some(x))).collect())
                 }
-                crate::reparse::Pattern::Array(array) => {
+                crate::reparse::patterns::Pattern::Array(array) => {
                     Self::Array(array.patterns().map(|x| Pattern::lower(Some(x))).collect())
                 }
-                crate::reparse::Pattern::Struct(struct_) => Self::Struct {
+                crate::reparse::patterns::Pattern::Struct(struct_) => Self::Struct {
                     type_: Token::lower(struct_.name()),
                     parameters: struct_
                         .parameters()
                         .map(|x| Pattern::lower(Some(x)))
                         .collect(),
                 },
-                crate::reparse::Pattern::TupleStruct(tuple_struct) => Self::TupleStruct {
+                crate::reparse::patterns::Pattern::TupleStruct(tuple_struct) => Self::TupleStruct {
                     type_: Token::lower(tuple_struct.name()),
                     tuple: Box::new(Self::lower(tuple_struct.tuple())),
                 },
-                crate::reparse::Pattern::Grouping(grouping) => Self::lower(grouping.pattern()),
+                crate::reparse::patterns::Pattern::Grouping(grouping) => Self::lower(grouping.pattern()),
             }
         } else {
             Self::Missing
@@ -628,10 +628,10 @@ pub enum Type {
     Var(Token),
 }
 impl Type {
-    pub fn lower(ty: Option<crate::reparse::Type>) -> Self {
+    pub fn lower(ty: Option<crate::reparse::types::Type>) -> Self {
         if let Some(ty) = ty {
             match ty {
-                crate::reparse::Type::Function(function) => Self::Function {
+                crate::reparse::types::Type::Function(function) => Self::Function {
                     arrow: match function.arrow_token() {
                         None => ArrowType::Missing,
                         Some(x) => match x.kind() {
@@ -646,32 +646,32 @@ impl Type {
                     input: Box::new(Self::lower(function.input_type())),
                     output: Box::new(Self::lower(function.output_type())),
                 },
-                crate::reparse::Type::Applied(applied) => Self::Applied {
+                crate::reparse::types::Type::Applied(applied) => Self::Applied {
                     applied: Box::new(Self::lower(applied.type_())),
                     type_vars: applied.vars().map(|x| Self::lower(Some(x))).collect(),
                 },
-                crate::reparse::Type::Reference(ref_) => Self::Reference {
+                crate::reparse::types::Type::Reference(ref_) => Self::Reference {
                     mutable: ref_.mutable(),
                     type_: Box::new(Self::lower(ref_.type_())),
                 },
-                crate::reparse::Type::Pointer(pointer) => Self::Pointer {
+                crate::reparse::types::Type::Pointer(pointer) => Self::Pointer {
                     mutable: pointer.mutable(),
                     type_: Box::new(Self::lower(pointer.type_())),
                 },
-                crate::reparse::Type::Grouping(grouping) => Self::lower(grouping.type_()),
-                crate::reparse::Type::Array(array) => Self::Array {
+                crate::reparse::types::Type::Grouping(grouping) => Self::lower(grouping.type_()),
+                crate::reparse::types::Type::Array(array) => Self::Array {
                     type_: Box::new(Self::lower(array.type_())),
                     size: array.size().map(|x| Token::lower(Some(x))),
                 },
-                crate::reparse::Type::Tuple(tuple) => {
+                crate::reparse::types::Type::Tuple(tuple) => {
                     Self::Tuple(tuple.types().map(|x| Self::lower(Some(x))).collect())
                 }
-                crate::reparse::Type::Lifetime(lifetime) => {
+                crate::reparse::types::Type::Lifetime(lifetime) => {
                     Self::Lifetime(Token::lower(lifetime.id()))
                 }
-                crate::reparse::Type::Basic(basic) => Self::Basic(Token::lower(basic.id())),
-                crate::reparse::Type::Var(var) => Self::Var(Token::lower(var.id())),
-                crate::reparse::Type::Unit(_) => Self::Unit,
+                crate::reparse::types::Type::Basic(basic) => Self::Basic(Token::lower(basic.id())),
+                crate::reparse::types::Type::Var(var) => Self::Var(Token::lower(var.id())),
+                crate::reparse::types::Type::Unit(_) => Self::Unit,
             }
         } else {
             Self::Missing
@@ -704,7 +704,7 @@ pub enum Decl {
         body: Option<ExprIdx>,
     },
     Operator {
-        fixity: crate::reparse::Fixity,
+        fixity: crate::reparse::decl::Fixity,
         op: Token,
         precedence: Option<Token>,
     },
@@ -739,7 +739,7 @@ pub enum Decl {
 }
 impl Decl {
     pub fn lower(
-        decl: Option<crate::reparse::Decl>,
+        decl: Option<crate::reparse::decl::Decl>,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -747,45 +747,45 @@ impl Decl {
     ) -> DeclIdx {
         if let Some(decl) = decl {
             match decl {
-                crate::reparse::Decl::Variable(var_decl) => {
+                crate::reparse::decl::Decl::Variable(var_decl) => {
                     let result =
                         Self::var_lower(var_decl, errors, types, declarations, expressions);
                     declarations.push(result)
                 }
-                crate::reparse::Decl::Function(fn_decl) => {
+                crate::reparse::decl::Decl::Function(fn_decl) => {
                     let result = Self::fn_lower(fn_decl, errors, types, declarations, expressions);
                     declarations.push(result)
                 }
-                crate::reparse::Decl::Operator(op_decl) => {
+                crate::reparse::decl::Decl::Operator(op_decl) => {
                     declarations.push(Self::op_lower(op_decl))
                 }
-                crate::reparse::Decl::Class(class_decl) => {
+                crate::reparse::decl::Decl::Class(class_decl) => {
                     let result =
                         Self::class_lower(class_decl, errors, types, declarations, expressions);
                     declarations.push(result)
                 }
-                crate::reparse::Decl::Implementation(impl_decl) => {
+                crate::reparse::decl::Decl::Implementation(impl_decl) => {
                     let result =
                         Self::impl_lower(impl_decl, errors, types, declarations, expressions);
                     declarations.push(result)
                 }
-                crate::reparse::Decl::Module(mod_decl) => {
+                crate::reparse::decl::Decl::Module(mod_decl) => {
                     let result =
                         Self::module_lower(mod_decl, errors, types, declarations, expressions);
                     declarations.push(result)
                 }
-                crate::reparse::Decl::Union(union_decl) => {
+                crate::reparse::decl::Decl::Union(union_decl) => {
                     declarations.push(Self::union_lower(union_decl))
                 }
-                crate::reparse::Decl::Struct(struct_decl) => {
+                crate::reparse::decl::Decl::Struct(struct_decl) => {
                     declarations.push(Self::struct_lower(struct_decl))
                 }
-                crate::reparse::Decl::Using(using_decl) => {
+                crate::reparse::decl::Decl::Using(using_decl) => {
                     let path =
                         Expr::lower(using_decl.path(), errors, types, declarations, expressions);
                     declarations.push(Self::Using { path })
                 }
-                crate::reparse::Decl::Expr(expr) => {
+                crate::reparse::decl::Decl::Expr(expr) => {
                     let result = Decl::Expr(Expr::lower(
                         Some(expr),
                         errors,
@@ -803,7 +803,7 @@ impl Decl {
     }
 
     fn var_lower(
-        decl: crate::reparse::Variable,
+        decl: crate::reparse::decl::Variable,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -824,7 +824,7 @@ impl Decl {
     }
 
     fn fn_lower(
-        decl: crate::reparse::Function,
+        decl: crate::reparse::decl::Function,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -874,7 +874,7 @@ impl Decl {
         }
     }
 
-    fn op_lower(decl: crate::reparse::Operator) -> Self {
+    fn op_lower(decl: crate::reparse::decl::Operator) -> Self {
         let fixity = decl.fixity().unwrap();
         let op = Token::lower(decl.operator());
         let precedence = decl.precedence().map(|x| Token::lower(Some(x)));
@@ -886,7 +886,7 @@ impl Decl {
     }
 
     fn class_lower(
-        decl: crate::reparse::Class,
+        decl: crate::reparse::decl::Class,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -910,7 +910,7 @@ impl Decl {
     }
 
     fn impl_lower(
-        decl: crate::reparse::Implementation,
+        decl: crate::reparse::decl::Implementation,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -934,7 +934,7 @@ impl Decl {
     }
 
     fn module_lower(
-        decl: crate::reparse::Module,
+        decl: crate::reparse::decl::Module,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -945,13 +945,13 @@ impl Decl {
         Self::Module { name, body }
     }
 
-    fn union_lower(decl: crate::reparse::Union) -> Self {
+    fn union_lower(decl: crate::reparse::decl::Union) -> Self {
         let defined = Type::lower(decl.defined_type());
         let variants = decl.variants().map(|x| Variant::lower(Some(x))).collect();
         Self::Union { defined, variants }
     }
 
-    fn struct_lower(decl: crate::reparse::Struct) -> Self {
+    fn struct_lower(decl: crate::reparse::decl::Struct) -> Self {
         let defined = Type::lower(decl.defined_type());
         let body = StructBody::lower(decl.struct_body());
         Self::Struct { defined, body }
@@ -965,13 +965,13 @@ pub enum StructBody {
     Struct(Vec<Parameter>),
 }
 impl StructBody {
-    fn lower(body: Option<crate::reparse::StructBody>) -> Self {
+    fn lower(body: Option<crate::reparse::decl::StructBody>) -> Self {
         if let Some(body) = body {
             match body {
-                crate::reparse::StructBody::Struct(parameters) => {
+                crate::reparse::decl::StructBody::Struct(parameters) => {
                     Self::Struct(parameters.into_iter().map(Parameter::lower).collect())
                 }
-                crate::reparse::StructBody::Tuple(tuple) => {
+                crate::reparse::decl::StructBody::Tuple(tuple) => {
                     Self::TupleStruct(Type::lower(Some(tuple)))
                 }
             }
@@ -989,18 +989,18 @@ pub enum Variant {
     StructVariant(Token, Vec<Parameter>),
 }
 impl Variant {
-    pub fn lower(variant: Option<crate::reparse::Variant>) -> Self {
+    pub fn lower(variant: Option<crate::reparse::decl::Variant>) -> Self {
         match variant {
             None => Self::Missing,
             Some(variant) => match variant {
-                crate::reparse::Variant::Plain(simple) => {
+                crate::reparse::decl::Variant::Plain(simple) => {
                     Self::SimpleVariant(Token::lower(simple.identifier()))
                 }
-                crate::reparse::Variant::Tuple(tuple) => Self::TupleVariant(
+                crate::reparse::decl::Variant::Tuple(tuple) => Self::TupleVariant(
                     Token::lower(tuple.identifier()),
                     Type::lower(tuple.tuple_type()),
                 ),
-                crate::reparse::Variant::Struct(struct_) => Self::StructVariant(
+                crate::reparse::decl::Variant::Struct(struct_) => Self::StructVariant(
                     Token::lower(struct_.identifier()),
                     struct_.parameters().map(Parameter::lower).collect(),
                 ),
@@ -1089,7 +1089,7 @@ pub enum Expr {
 }
 impl Expr {
     pub fn lower(
-        cst: Option<crate::reparse::Expr>,
+        cst: Option<crate::reparse::expr::Expr>,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1097,27 +1097,27 @@ impl Expr {
     ) -> ExprIdx {
         if let Some(cst) = cst {
             match cst {
-                crate::reparse::Expr::Unit(_) => expressions.push(Self::Unit),
-                crate::reparse::Expr::Placeholder(_) => expressions.push(Self::Placeholder),
-                crate::reparse::Expr::Block(cst) => {
+                crate::reparse::expr::Expr::Unit(_) => expressions.push(Self::Unit),
+                crate::reparse::expr::Expr::Placeholder(_) => expressions.push(Self::Placeholder),
+                crate::reparse::expr::Expr::Block(cst) => {
                     let result = Self::lower_block(cst, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::If(if_expr) => {
+                crate::reparse::expr::Expr::If(if_expr) => {
                     let result = Self::lower_if(if_expr, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::While(while_expr) => {
+                crate::reparse::expr::Expr::While(while_expr) => {
                     let result =
                         Self::lower_while(while_expr, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Loop(loop_expr) => {
+                crate::reparse::expr::Expr::Loop(loop_expr) => {
                     let result =
                         Self::lower_loop(loop_expr, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Assignment(assignment) => {
+                crate::reparse::expr::Expr::Assignment(assignment) => {
                     let result = Self::lower_assignment(
                         assignment,
                         errors,
@@ -1127,55 +1127,55 @@ impl Expr {
                     );
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Grouping(expr) => {
+                crate::reparse::expr::Expr::Grouping(expr) => {
                     let result =
                         Self::lower_grouping(expr, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Literal(literal) => {
+                crate::reparse::expr::Expr::Literal(literal) => {
                     expressions.push(Self::Literal(Token::lower(literal.token())))
                 }
-                crate::reparse::Expr::Identifier(id) => expressions.push(Self::Identifier {
+                crate::reparse::expr::Expr::Identifier(id) => expressions.push(Self::Identifier {
                     name: Token::lower(id.id()),
                     index: None,
                 }),
-                crate::reparse::Expr::Lambda(lambda) => {
+                crate::reparse::expr::Expr::Lambda(lambda) => {
                     let result =
                         Self::lower_lambda(lambda, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Tuple(tuple) => {
+                crate::reparse::expr::Expr::Tuple(tuple) => {
                     let result = Self::lower_tuple(tuple, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Prefix(prefix) => {
+                crate::reparse::expr::Expr::Prefix(prefix) => {
                     let result =
                         Self::lower_prefix_op(prefix, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Binary(binary) => {
+                crate::reparse::expr::Expr::Binary(binary) => {
                     let result =
                         Self::lower_binary_op(binary, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Unsafe(unsafe_) => {
+                crate::reparse::expr::Expr::Unsafe(unsafe_) => {
                     let result =
                         Self::lower_unsafe(unsafe_, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Path(path) => {
+                crate::reparse::expr::Expr::Path(path) => {
                     let result = Self::lower_path(path, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Dereference(deref) => {
+                crate::reparse::expr::Expr::Dereference(deref) => {
                     let result = Self::lower_deref(deref, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Reference(ref_) => {
+                crate::reparse::expr::Expr::Reference(ref_) => {
                     let result = Self::lower_ref(ref_, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::FieldCall(field_call) => {
+                crate::reparse::expr::Expr::FieldCall(field_call) => {
                     let result = Self::lower_field_call(
                         field_call,
                         errors,
@@ -1185,7 +1185,7 @@ impl Expr {
                     );
                     expressions.push(result)
                 }
-                crate::reparse::Expr::FunctionCall(function_call) => {
+                crate::reparse::expr::Expr::FunctionCall(function_call) => {
                     let result = Self::lower_function_call(
                         function_call,
                         errors,
@@ -1195,7 +1195,7 @@ impl Expr {
                     );
                     expressions.push(result)
                 }
-                crate::reparse::Expr::ArrayIndex(array_index) => {
+                crate::reparse::expr::Expr::ArrayIndex(array_index) => {
                     let result = Self::lower_array_index(
                         array_index,
                         errors,
@@ -1205,7 +1205,7 @@ impl Expr {
                     );
                     expressions.push(result)
                 }
-                crate::reparse::Expr::ArrayConstructor(array_constructor) => {
+                crate::reparse::expr::Expr::ArrayConstructor(array_constructor) => {
                     let result = Self::lower_array_constructor(
                         array_constructor,
                         errors,
@@ -1215,12 +1215,12 @@ impl Expr {
                     );
                     expressions.push(result)
                 }
-                crate::reparse::Expr::Return(return_) => {
+                crate::reparse::expr::Expr::Return(return_) => {
                     let result =
                         Self::lower_return(return_, errors, types, declarations, expressions);
                     expressions.push(result)
                 }
-                crate::reparse::Expr::StructInit(struct_init) => {
+                crate::reparse::expr::Expr::StructInit(struct_init) => {
                     let result = Self::lower_struct_init(
                         struct_init,
                         errors,
@@ -1238,7 +1238,7 @@ impl Expr {
     }
 
     fn lower_block(
-        block: crate::reparse::BlockExpr,
+        block: crate::reparse::expr::BlockExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1260,7 +1260,7 @@ impl Expr {
     }
 
     fn lower_if(
-        if_expr: crate::reparse::IfExpr,
+        if_expr: crate::reparse::expr::IfExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1291,7 +1291,7 @@ impl Expr {
     }
 
     fn lower_while(
-        while_expr: crate::reparse::WhileExpr,
+        while_expr: crate::reparse::expr::WhileExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1309,7 +1309,7 @@ impl Expr {
     }
 
     fn lower_loop(
-        loop_expr: crate::reparse::LoopExpr,
+        loop_expr: crate::reparse::expr::LoopExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1320,7 +1320,7 @@ impl Expr {
     }
 
     fn lower_assignment(
-        expr: crate::reparse::AssignmentExpr,
+        expr: crate::reparse::expr::AssignmentExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1335,7 +1335,7 @@ impl Expr {
     }
 
     fn lower_grouping(
-        expr: crate::reparse::GroupingExpr,
+        expr: crate::reparse::expr::GroupingExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1351,14 +1351,14 @@ impl Expr {
     }
 
     fn lower_lambda(
-        lambda: crate::reparse::LambdaExpr,
+        lambda: crate::reparse::expr::LambdaExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
         expressions: &mut IndexVec<ExprIdx, Expr>,
     ) -> Self {
         let mut symbols = SymbolTable::new();
-        let args: Vec<_> = lambda.args().map(|x| Pattern::lower(Some(x))).collect();
+        let args: Vec<Pattern> = lambda.args().map(|x| Pattern::lower(Some(x))).collect();
         for arg in &args {
             let decl = Decl::Variable{mutable: false, pattern: arg.clone(), type_: Some(Type::Var(Token{kind: TokenKind::Identifier, str: "".into()})), value: None};
             let decl_idx: DeclIdx = declarations.len().into();
@@ -1392,7 +1392,7 @@ impl Expr {
     }
 
     fn lower_tuple(
-        tuple: crate::reparse::TupleExpr,
+        tuple: crate::reparse::expr::TupleExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1406,7 +1406,7 @@ impl Expr {
     }
 
     fn lower_prefix_op(
-        prefix: crate::reparse::PrefixExpr,
+        prefix: crate::reparse::expr::PrefixExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1418,7 +1418,7 @@ impl Expr {
     }
 
     fn lower_binary_op(
-        binary: crate::reparse::BinaryExpr,
+        binary: crate::reparse::expr::BinaryExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1431,7 +1431,7 @@ impl Expr {
     }
 
     fn lower_unsafe(
-        unsafe_: crate::reparse::UnsafeExpr,
+        unsafe_: crate::reparse::expr::UnsafeExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1442,7 +1442,7 @@ impl Expr {
     }
 
     fn lower_path(
-        path: crate::reparse::PathExpr,
+        path: crate::reparse::expr::PathExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1454,7 +1454,7 @@ impl Expr {
     }
 
     fn lower_deref(
-        deref: crate::reparse::DereferenceExpr,
+        deref: crate::reparse::expr::DereferenceExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1465,7 +1465,7 @@ impl Expr {
     }
 
     fn lower_ref(
-        ref_: crate::reparse::ReferenceExpr,
+        ref_: crate::reparse::expr::ReferenceExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1477,7 +1477,7 @@ impl Expr {
     }
 
     fn lower_field_call(
-        field_call: crate::reparse::FieldCallExpr,
+        field_call: crate::reparse::expr::FieldCallExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1489,7 +1489,7 @@ impl Expr {
     }
 
     fn lower_function_call(
-        function_call: crate::reparse::FunctionCallExpr,
+        function_call: crate::reparse::expr::FunctionCallExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1511,7 +1511,7 @@ impl Expr {
     }
 
     fn lower_array_index(
-        array_index: crate::reparse::ArrayIndexExpr,
+        array_index: crate::reparse::expr::ArrayIndexExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1532,7 +1532,7 @@ impl Expr {
     }
 
     fn lower_array_constructor(
-        array_constructor: crate::reparse::ArrayConstructorExpr,
+        array_constructor: crate::reparse::expr::ArrayConstructorExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1546,7 +1546,7 @@ impl Expr {
     }
 
     fn lower_return(
-        return_: crate::reparse::ReturnExpr,
+        return_: crate::reparse::expr::ReturnExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,
@@ -1557,7 +1557,7 @@ impl Expr {
     }
 
     fn lower_struct_init(
-        struct_init: crate::reparse::StructInitExpr,
+        struct_init: crate::reparse::expr::StructInitExpr,
         errors: &mut Vec<String>,
         types: &mut IndexVec<TypeIdx, Decl>,
         declarations: &mut IndexVec<DeclIdx, Decl>,

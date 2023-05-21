@@ -1,8 +1,8 @@
 pub mod data_types;
-mod types;
 mod patterns;
-
-pub use crate::parser::data_types::{ParsedTree, Parser, TokenKind, TreeBuilder};
+mod types;
+pub use crate::parser::data_types::{ParsedTree, TokenKind};
+use crate::parser::data_types::{Parser, TreeBuilder};
 use logos::Logos;
 
 fn single_token(parser: &mut Parser) {
@@ -479,8 +479,8 @@ mod expr {
 mod decl {
     use super::data_types::{Parser, TokenKind};
     use super::expr;
-    use super::types;
     use super::patterns;
+    use super::types;
     pub(crate) fn let_decl(parser: &mut Parser) {
         assert!(parser.peek() == Some(TokenKind::Let));
         parser.start_node(TokenKind::VariableDecl);
@@ -776,17 +776,11 @@ mod decl {
 }
 
 pub fn parse(source: &str) -> ParsedTree {
-    let mut lexer = TokenKind::lexer(source);
-    let mut tokens = vec![];
-    'tokenize: loop {
-        match lexer.next() {
-            Some(t) => {
-                let slice = lexer.slice();
-                tokens.push((t, slice));
-            }
-            None => break 'tokenize,
-        }
-    }
+    let lexer = TokenKind::lexer(source);
+    let tokens: Vec<_> = lexer
+        .spanned()
+        .map(|(token_kind, range)| (token_kind, &source[range]))
+        .collect();
     let mut parser = Parser::from_tokens(tokens.as_slice());
     parser.start_node(TokenKind::SourceFile);
     let mut last_succeeded = true;
