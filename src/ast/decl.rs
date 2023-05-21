@@ -1,6 +1,7 @@
 use super::data_types::{SymbolTable, DeclIdx, ExprIdx, TypeIdx, Token};
 use super::expr;
 use super::patterns;
+use super::types;
 use crate::parser::data_types::TokenKind;
 use index_vec::{IndexVec};
 use smol_str::SmolStr;
@@ -8,13 +9,13 @@ use smol_str::SmolStr;
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Parameter {
     pattern: patterns::Pattern,
-    type_: Option<super::Type>,
+    type_: Option<types::Type>,
 }
 impl Parameter {
     pub fn lower(param: crate::reparse::decl::Parameter) -> Self {
         Parameter {
             pattern: patterns::Pattern::lower(param.pattern()),
-            type_: param.type_().map(|x| super::Type::lower(Some(x))),
+            type_: param.type_().map(|x| types::Type::lower(Some(x))),
         }
     }
 }
@@ -25,13 +26,13 @@ pub enum Decl {
     Variable {
         mutable: bool,
         pattern: patterns::Pattern,
-        type_: Option<super::Type>,
+        type_: Option<types::Type>,
         value: Option<ExprIdx>,
     },
     Function {
         name: Token,
         args: Vec<patterns::Pattern>,
-        type_: Option<super::Type>,
+        type_: Option<types::Type>,
         symbols: SymbolTable,
         body: Option<ExprIdx>,
     },
@@ -41,15 +42,15 @@ pub enum Decl {
         precedence: Option<Token>,
     },
     Class {
-        constraints: Vec<(Token, super::Type)>,
+        constraints: Vec<(Token, types::Type)>,
         defined_class: Token,
-        defined_type: super::Type,
+        defined_type: types::Type,
         body: ExprIdx,
     },
     Implementation {
-        constraints: Vec<(Token, super::Type)>,
+        constraints: Vec<(Token, types::Type)>,
         defined_class: Token,
-        defined_type: super::Type,
+        defined_type: types::Type,
         body: ExprIdx,
     },
     Module {
@@ -57,11 +58,11 @@ pub enum Decl {
         body: ExprIdx,
     },
     Union {
-        defined: super::Type,
+        defined: types::Type,
         variants: Vec<Variant>,
     },
     Struct {
-        defined: super::Type,
+        defined: types::Type,
         body: StructBody,
     },
     Using {
@@ -143,7 +144,7 @@ impl Decl {
     ) -> Self {
         let mutable = decl.mutable();
         let pattern = patterns::Pattern::lower(decl.pattern());
-        let type_ = decl.type_().map(|x| super::Type::lower(Some(x)));
+        let type_ = decl.type_().map(|x| types::Type::lower(Some(x)));
         let value = decl
             .value()
             .map(|x| expr::Expr::lower(Some(x), errors, types, declarations, expressions));
@@ -164,13 +165,13 @@ impl Decl {
     ) -> Self {
         let name = Token::lower(decl.name());
         let args: Vec<_> = decl.arguments().map(|x| patterns::Pattern::lower(Some(x))).collect();
-        let type_ = decl.type_().map(|x| super::Type::lower(Some(x)));
+        let type_ = decl.type_().map(|x| types::Type::lower(Some(x)));
         let mut symbols = SymbolTable::new();
         for arg in &args {
             let decl = Decl::Variable {
                 mutable: false,
                 pattern: arg.clone(),
-                type_: Some(super::Type::Var(Token {
+                type_: Some(types::Type::Var(Token {
                     kind: TokenKind::Identifier,
                     str: "".into(),
                 })),
@@ -235,11 +236,11 @@ impl Decl {
         let constraints = match decl.constraints() {
             None => vec![],
             Some(x) => x
-                .map(|x| (Token::lower(x.class()), super::Type::lower(x.type_())))
+                .map(|x| (Token::lower(x.class()), types::Type::lower(x.type_())))
                 .collect(),
         };
         let defined_class = Token::lower(decl.defined_class());
-        let defined_type = super::Type::lower(decl.defined_type());
+        let defined_type = types::Type::lower(decl.defined_type());
         let body = expr::Expr::lower(decl.block(), errors, types, declarations, expressions);
         Self::Class {
             constraints,
@@ -259,11 +260,11 @@ impl Decl {
         let constraints = match decl.constraints() {
             None => vec![],
             Some(x) => x
-                .map(|x| (Token::lower(x.class()), super::Type::lower(x.type_())))
+                .map(|x| (Token::lower(x.class()), types::Type::lower(x.type_())))
                 .collect(),
         };
         let defined_class = Token::lower(decl.defined_class());
-        let defined_type = super::Type::lower(decl.defined_type());
+        let defined_type = types::Type::lower(decl.defined_type());
         let body = expr::Expr::lower(decl.block(), errors, types, declarations, expressions);
         Self::Implementation {
             constraints,
@@ -286,13 +287,13 @@ impl Decl {
     }
 
     fn union_lower(decl: crate::reparse::decl::Union) -> Self {
-        let defined = super::Type::lower(decl.defined_type());
+        let defined = types::Type::lower(decl.defined_type());
         let variants = decl.variants().map(|x| Variant::lower(Some(x))).collect();
         Self::Union { defined, variants }
     }
 
     fn struct_lower(decl: crate::reparse::decl::Struct) -> Self {
-        let defined = super::Type::lower(decl.defined_type());
+        let defined = types::Type::lower(decl.defined_type());
         let body = StructBody::lower(decl.struct_body());
         Self::Struct { defined, body }
     }
@@ -301,7 +302,7 @@ impl Decl {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum StructBody {
     Missing,
-    TupleStruct(super::Type),
+    TupleStruct(types::Type),
     Struct(Vec<Parameter>),
 }
 impl StructBody {
@@ -312,7 +313,7 @@ impl StructBody {
                     Self::Struct(parameters.into_iter().map(Parameter::lower).collect())
                 }
                 crate::reparse::decl::StructBody::Tuple(tuple) => {
-                    Self::TupleStruct(super::Type::lower(Some(tuple)))
+                    Self::TupleStruct(types::Type::lower(Some(tuple)))
                 }
             }
         } else {
@@ -325,7 +326,7 @@ impl StructBody {
 pub enum Variant {
     Missing,
     SimpleVariant(Token),
-    TupleVariant(Token, super::Type),
+    TupleVariant(Token, types::Type),
     StructVariant(Token, Vec<Parameter>),
 }
 impl Variant {
@@ -338,7 +339,7 @@ impl Variant {
                 }
                 crate::reparse::decl::Variant::Tuple(tuple) => Self::TupleVariant(
                     Token::lower(tuple.identifier()),
-                    super::Type::lower(tuple.tuple_type()),
+                    types::Type::lower(tuple.tuple_type()),
                 ),
                 crate::reparse::decl::Variant::Struct(struct_) => Self::StructVariant(
                     Token::lower(struct_.identifier()),

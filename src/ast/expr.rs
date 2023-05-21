@@ -1,6 +1,7 @@
 use super::data_types::{SymbolTable, DeclIdx, ExprIdx, TypeIdx, Token};
 use super::decl;
 use super::patterns;
+use super::types;
 use crate::parser::data_types::TokenKind;
 use index_vec::{IndexVec};
 use smol_str::SmolStr;
@@ -359,7 +360,7 @@ impl Expr {
             let decl = decl::Decl::Variable {
                 mutable: false,
                 pattern: arg.clone(),
-                type_: Some(super::Type::Var(Token {
+                type_: Some(types::Type::Var(Token {
                     kind: TokenKind::Identifier,
                     str: "".into(),
                 })),
