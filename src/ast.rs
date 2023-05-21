@@ -1,4 +1,4 @@
-use crate::parser::types::TokenKind;
+use crate::parser::data_types::TokenKind;
 use crate::reparse::SyntaxToken;
 use index_vec::{index_vec, IndexVec};
 use smol_str::SmolStr;

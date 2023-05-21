@@ -1,5 +1,5 @@
 use crate::ast;
-use crate::parser::types::TokenKind;
+use crate::parser::data_types::TokenKind;
 use ast::{ArrowType, Decl, DeclIdx, Expr, ExprIdx, SymbolTable, TypeIdx};
 use index_vec::{index_vec, IndexVec};
 use smol_str::SmolStr;
