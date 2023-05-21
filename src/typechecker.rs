@@ -67,14 +67,14 @@ const TYPE_STR: usize = 16;
 
 impl Type {
     fn lower(
-        t: &crate::ast::Type,
+        t: &crate::ast::types::Type,
         scopes: &Vec<&SymbolTable>,
         vartypes: &mut usize,
     ) -> Option<Self> {
         let result = match t {
-            ast::Type::Missing => return None,
-            ast::Type::Unit => Self::Tuple(0),
-            ast::Type::Function {
+            ast::types::Type::Missing => return None,
+            ast::types::Type::Unit => Self::Tuple(0),
+            ast::types::Type::Function {
                 arrow,
                 input,
                 output,
@@ -89,7 +89,7 @@ impl Type {
                 let output = Self::lower(output, scopes, vartypes)?;
                 Self::Applied(arrow, vec![input, output])
             }
-            ast::Type::Applied { applied, type_vars } => {
+            ast::types::Type::Applied { applied, type_vars } => {
                 let applied = Box::new(Self::lower(applied, scopes, vartypes)?);
                 let type_vars = type_vars
                     .iter()
@@ -98,15 +98,15 @@ impl Type {
                     .collect();
                 Self::Applied(applied, type_vars)
             }
-            ast::Type::Reference { mutable, type_ } => {
+            ast::types::Type::Reference { mutable, type_ } => {
                 let type_ = Self::lower(type_, scopes, vartypes)?;
                 Self::Applied(Box::new(Self::Reference { mutable: *mutable }), vec![type_])
             }
-            ast::Type::Pointer { mutable, type_ } => {
+            ast::types::Type::Pointer { mutable, type_ } => {
                 let type_ = Self::lower(type_, scopes, vartypes)?;
                 Self::Applied(Box::new(Self::Pointer { mutable: *mutable }), vec![type_])
             }
-            ast::Type::Array { type_, size } => {
+            ast::types::Type::Array { type_, size } => {
                 let str = match size {
                     None => None,
                     Some(t) => match t.str().parse::<usize>() {
@@ -118,7 +118,7 @@ impl Type {
                 let type_ = Self::lower(type_, scopes, vartypes)?;
                 Self::Applied(array, vec![type_])
             }
-            ast::Type::Tuple(types) => {
+            ast::types::Type::Tuple(types) => {
                 let size = types.len();
                 let tuple = Box::new(Self::Tuple(size));
                 let types: Vec<Self> = types
@@ -132,12 +132,12 @@ impl Type {
                     Self::Applied(tuple, types)
                 }
             }
-            ast::Type::Lifetime(_) => {
+            ast::types::Type::Lifetime(_) => {
                 let x = *vartypes;
                 *vartypes += 1;
                 Self::Lifetime(LifetimeID(x))
             }
-            ast::Type::Basic(name) => {
+            ast::types::Type::Basic(name) => {
                 macro_rules! name_match {
                     ($obj: expr, $($str: pat => $type:ident),*) => {
                         match $obj {
@@ -181,7 +181,7 @@ impl Type {
                     Some(id) => Self::Basic(id),
                 }
             }
-            ast::Type::Var(_) => new_type_var(vartypes),
+            ast::types::Type::Var(_) => new_type_var(vartypes),
         };
         Some(result)
     }

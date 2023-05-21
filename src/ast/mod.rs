@@ -2,10 +2,12 @@ mod data_types;
 pub mod decl;
 pub mod expr;
 mod patterns;
-mod types;
+pub mod types;
 use index_vec::{index_vec, IndexVec};
 
 pub use data_types::{DeclIdx, ExprIdx, TypeIdx, SymbolTable, Token};
+
+pub use types::ArrowType;
 
 
 #[derive(PartialEq, Eq, Debug, Clone)]
