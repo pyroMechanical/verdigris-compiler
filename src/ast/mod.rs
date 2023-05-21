@@ -1,0 +1,566 @@
+mod data_types;
+pub mod decl;
+pub mod expr;
+mod patterns;
+use crate::parser::data_types::TokenKind;
+use index_vec::{index_vec, IndexVec};
+use smol_str::SmolStr;
+
+pub use data_types::{DeclIdx, ExprIdx, TypeIdx, SymbolTable, Token};
+
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct SourceFile {
+    pub declarations: IndexVec<DeclIdx, decl::Decl>,
+    pub top_level_declarations: Vec<DeclIdx>,
+    pub expressions: IndexVec<ExprIdx, expr::Expr>,
+    pub symbol_names: SymbolTable,
+    pub types: IndexVec<TypeIdx, decl::Decl>,
+}
+impl SourceFile {
+    pub fn lower(source: crate::reparse::SourceFile, errors: &mut Vec<String>) -> Self {
+        //17 missing spots are for primitive types. in order:
+        //0: bool
+        //1: i8
+        //2: i16
+        //3: i32
+        //4: i64
+        //5: i128
+        //6: isize
+        //7: u8
+        //8: u16
+        //9: u32
+        //10: u64
+        //11: u128
+        //12: usize
+        //13: f32
+        //14: f64
+        //15: char
+        //16: str
+        let mut types = index_vec![decl::Decl::Missing; 17];
+        let mut expressions: IndexVec<ExprIdx, expr::Expr> = index_vec![];
+        let mut declarations: IndexVec<DeclIdx, decl::Decl> = index_vec![];
+        let top_level_declarations = source
+            .decls()
+            .map(|x| {
+                decl::Decl::lower(
+                    Some(x),
+                    errors,
+                    &mut types,
+                    &mut declarations,
+                    &mut expressions,
+                )
+            })
+            .collect();
+        let symbol_names = symbols_from_declarations(
+            &top_level_declarations,
+            &mut declarations,
+            &mut expressions,
+            errors,
+            &mut types,
+        );
+        Self {
+            declarations,
+            top_level_declarations,
+            expressions,
+            symbol_names,
+            types,
+        }
+    }
+}
+
+fn symbols_from_declarations(
+    declaration_ids: &Vec<DeclIdx>,
+    declarations: &mut IndexVec<DeclIdx, decl::Decl>,
+    expressions: &mut IndexVec<ExprIdx, expr::Expr>,
+    errors: &mut Vec<String>,
+    types: &mut IndexVec<TypeIdx, decl::Decl>,
+) -> SymbolTable {
+    let mut symbols = SymbolTable::new();
+    for declaration in declaration_ids {
+        if let Some(decl) = declarations.get_mut(*declaration) {
+            match decl {
+                decl::Decl::Variable { pattern, value, .. } => {
+                    let names = pattern.identifiers();
+                    match value {
+                        None => (),
+                        Some(value) => {
+                            identifier_counts(*value, &symbols, declarations, expressions)
+                        }
+                    };
+                    for name in names {
+                        match symbols.value_names.entry(name) {
+                            std::collections::hash_map::Entry::Occupied(mut occupied) => {
+                                occupied.get_mut().push(symbols.value_declarations.len());
+                                symbols.value_declarations.push(
+                                    declarations
+                                        .get(*declaration)
+                                        .expect("Invalid Declaration Index!")
+                                        .clone(),
+                                );
+                            }
+                            std::collections::hash_map::Entry::Vacant(vacant) => {
+                                vacant.insert(vec![symbols.value_declarations.len()]);
+                                symbols.value_declarations.push(
+                                    declarations
+                                        .get(*declaration)
+                                        .expect("Invalid Declaration Index!")
+                                        .clone(),
+                                );
+                            }
+                        }
+                    }
+                }
+                decl::Decl::Function { name, body, .. } => {
+                    let name = name.str.clone();
+                    match body {
+                        None => (),
+                        Some(body) => identifier_counts(*body, &symbols, declarations, expressions),
+                    };
+                    match symbols.value_names.entry(name.clone()) {
+                        std::collections::hash_map::Entry::Occupied(_) => {
+                            errors.push(format!("Attempted redefinition of symbol \"{}\"", &name));
+                        }
+                        std::collections::hash_map::Entry::Vacant(vacant) => {
+                            vacant.insert(vec![symbols.value_declarations.len()]);
+                            symbols.value_declarations.push(
+                                declarations
+                                    .get(*declaration)
+                                    .expect("Invalid Declaration Index!")
+                                    .clone(),
+                            );
+                        }
+                    }
+                }
+                decl::Decl::Class {
+                    defined_class,
+                    body,
+                    ..
+                } => {
+                    let name = defined_class.str.clone();
+                    identifier_counts(*body, &symbols, declarations, expressions);
+                    match symbols.type_names.entry(name.clone()) {
+                        std::collections::hash_map::Entry::Occupied(_) => {
+                            errors.push(format!("Attempted redefinition of symbol \"{}\"", name));
+                        }
+                        std::collections::hash_map::Entry::Vacant(vacant) => {
+                            vacant.insert(types.len().into());
+                            types.push(
+                                declarations
+                                    .get(*declaration)
+                                    .expect("Invalid Declaration Index!")
+                                    .clone(),
+                            );
+                        }
+                    }
+                }
+                decl::Decl::Implementation {
+                    defined_class,
+                    defined_type,
+                    body,
+                    ..
+                } => {
+                    let name = defined_type.named_type();
+                    let class = defined_class.str.clone();
+                    identifier_counts(*body, &symbols, declarations, expressions);
+                    if let Some(name) = name {
+                        match symbols.namespaces.entry(name.clone()) {
+                            std::collections::hash_map::Entry::Occupied(mut occupied) => {
+                                let table = occupied.get_mut();
+                                match table.class_implementations.entry(class.clone()) {
+                                    std::collections::hash_map::Entry::Occupied(_) => {
+                                        errors.push(format!("Attempted redefinition of implementation \"{}\" for type \"{}\"", class, name));
+                                    }
+                                    std::collections::hash_map::Entry::Vacant(vacant) => {
+                                        vacant.insert(
+                                            declarations.get(*declaration).unwrap().clone(),
+                                        );
+                                    }
+                                }
+                            }
+                            std::collections::hash_map::Entry::Vacant(_) => {
+                                errors.push(format!("Could not find type \"{}\"", name));
+                            }
+                        }
+                    }
+                }
+                decl::Decl::Module { name, body } => {
+                    let name = name.str.clone();
+                    identifier_counts(*body, &symbols, declarations, expressions);
+                    match symbols.type_names.entry(name.clone()) {
+                        std::collections::hash_map::Entry::Occupied(_) => {
+                            errors.push(format!("Attempted redefinition of symbol \"{}\"", name));
+                        }
+                        std::collections::hash_map::Entry::Vacant(vacant) => {
+                            vacant.insert(types.len().into());
+                            types.push(
+                                declarations
+                                    .get(*declaration)
+                                    .expect("Invalid Declaration Index!")
+                                    .clone(),
+                            );
+                        }
+                    }
+                }
+                decl::Decl::Operator { op, .. } => match symbols.operator_tokens.entry(op.str.clone()) {
+                    std::collections::hash_map::Entry::Occupied(_) => {
+                        errors.push(format!(
+                            "Attempted redefinition of operator token \"{}\"",
+                            op.str
+                        ));
+                    }
+                    std::collections::hash_map::Entry::Vacant(vacant) => {
+                        vacant.insert(symbols.value_declarations.len());
+                        symbols.value_declarations.push(
+                            declarations
+                                .get(*declaration)
+                                .expect("Invalid Declaration Index!")
+                                .clone(),
+                        );
+                    }
+                },
+                decl::Decl::Using { .. } => {}
+                decl::Decl::Union { defined, .. } => {
+                    if let Some(name) = defined.named_type() {
+                        match symbols.type_names.entry(name.clone()) {
+                            std::collections::hash_map::Entry::Occupied(_) => {
+                                errors
+                                    .push(format!("Attempted redefinition of symbol \"{}\"", name));
+                            }
+                            std::collections::hash_map::Entry::Vacant(vacant) => {
+                                vacant.insert(types.len().into());
+                                types.push(
+                                    declarations
+                                        .get(*declaration)
+                                        .expect("Invalid Declaration Index!")
+                                        .clone(),
+                                );
+                            }
+                        }
+                    }
+                }
+                decl::Decl::Struct { defined, .. } => {
+                    if let Some(name) = defined.named_type() {
+                        match symbols.type_names.entry(name.clone()) {
+                            std::collections::hash_map::Entry::Occupied(_) => {
+                                errors
+                                    .push(format!("Attempted redefinition of symbol \"{}\"", name));
+                            }
+                            std::collections::hash_map::Entry::Vacant(vacant) => {
+                                vacant.insert(types.len().into());
+                                types.push(
+                                    declarations
+                                        .get(*declaration)
+                                        .expect("Invalid Declaration Index!")
+                                        .clone(),
+                                );
+                            }
+                        }
+                    }
+                }
+                decl::Decl::Expr(expr) => identifier_counts(*expr, &symbols, declarations, expressions),
+                decl::Decl::Missing => (),
+            }
+        }
+    }
+    symbols
+}
+
+fn identifier_counts(
+    expr: ExprIdx,
+    symbols: &SymbolTable,
+    declarations: &mut IndexVec<DeclIdx, decl::Decl>,
+    expressions: &mut IndexVec<ExprIdx, expr::Expr>,
+) {
+    if let Some(expression) = expressions.get(expr) {
+        let expression = expression.clone();
+        match expression {
+            expr::Expr::Missing => (),
+            expr::Expr::Unit => (),
+            expr::Expr::Placeholder => (),
+            expr::Expr::Block {
+                declarations: block_decls,
+                terminator,
+                ..
+            } => {
+                match terminator {
+                    None => (),
+                    Some(expr) => identifier_counts(expr, symbols, declarations, expressions),
+                };
+                for declaration in block_decls {
+                    identifier_counts_decl(declaration, symbols, declarations, expressions);
+                }
+            }
+            expr::Expr::Binary {
+                lhs,
+                rhs,
+                op,
+                op_idx,
+            } => {
+                match op_idx {
+                    Some(_) => (),
+                    None => match symbols.value_names.get(op.str()) {
+                        None => (),
+                        Some(vec) => {
+                            if vec.len() != 0 {
+                                match expressions.get_mut(expr) {
+                                    None => unreachable!("Invalid Expression Index!"),
+                                    Some(expr) => match expr {
+                                        expr::Expr::Binary { op_idx, .. } => *op_idx = Some(vec.len()),
+                                        _ => unreachable!(),
+                                    },
+                                }
+                            }
+                        }
+                    },
+                };
+                identifier_counts(lhs, symbols, declarations, expressions);
+                identifier_counts(rhs, symbols, declarations, expressions);
+            }
+            expr::Expr::Grouping(expr) => {
+                identifier_counts(expr, symbols, declarations, expressions);
+            }
+            expr::Expr::Prefix { expr, op, op_idx } => {
+                match op_idx {
+                    Some(_) => (),
+                    None => match symbols.value_names.get(op.str()) {
+                        None => (),
+                        Some(vec) => {
+                            if vec.len() != 0 {
+                                match expressions.get_mut(expr) {
+                                    None => unreachable!("Invalid Expression Index!"),
+                                    Some(expr) => match expr {
+                                        expr::Expr::Binary { op_idx, .. } => *op_idx = Some(vec.len()),
+                                        _ => unreachable!(),
+                                    },
+                                }
+                            }
+                        }
+                    },
+                };
+                identifier_counts(expr, symbols, declarations, expressions)
+            }
+            expr::Expr::Tuple(exprs) => {
+                for expr in exprs {
+                    identifier_counts(expr, symbols, declarations, expressions)
+                }
+            }
+            expr::Expr::ArrayConstructor(exprs) => {
+                for expr in exprs {
+                    identifier_counts(expr, symbols, declarations, expressions)
+                }
+            }
+            expr::Expr::ArrayIndex { indexed, index } => {
+                identifier_counts(indexed, symbols, declarations, expressions);
+                identifier_counts(index, symbols, declarations, expressions);
+            }
+            expr::Expr::If {
+                condition,
+                then,
+                else_,
+            } => {
+                identifier_counts(condition, symbols, declarations, expressions);
+                identifier_counts(then, symbols, declarations, expressions);
+                match else_ {
+                    None => (),
+                    Some(expr) => identifier_counts(expr, symbols, declarations, expressions),
+                };
+            }
+            expr::Expr::While { condition, body } => {
+                identifier_counts(condition, symbols, declarations, expressions);
+                identifier_counts(body, symbols, declarations, expressions);
+            }
+            expr::Expr::Loop(body) => identifier_counts(body, symbols, declarations, expressions),
+            expr::Expr::Assignment { assigned, value } => {
+                identifier_counts(assigned, symbols, declarations, expressions);
+                identifier_counts(value, symbols, declarations, expressions);
+            }
+            expr::Expr::Identifier { name, index } => match index {
+                Some(_) => (),
+                None => match symbols.value_names.get(name.str()) {
+                    None => println!("{:?}", symbols.value_names), //todo!() remove this and replace with ()
+                    Some(vec) => {
+                        if vec.len() != 0 {
+                            match expressions.get_mut(expr) {
+                                None => unreachable!("Invalid Expression Index!"),
+                                Some(expr) => match expr {
+                                    expr::Expr::Identifier { index, .. } => *index = Some(vec.len()),
+                                    _ => unreachable!(),
+                                },
+                            }
+                        }
+                    }
+                },
+            },
+            expr::Expr::Literal(_) => (),
+            expr::Expr::Unsafe(expr)
+            | expr::Expr::Dereference { expr }
+            | expr::Expr::Reference { expr, .. }
+            | expr::Expr::Return(expr) => identifier_counts(expr, symbols, declarations, expressions),
+            expr::Expr::Path {
+                lhs: _lhs,
+                rhs: _rhs,
+            } => todo!(),
+            expr::Expr::FieldCall { lhs, .. } => {
+                identifier_counts(lhs, symbols, declarations, expressions)
+            }
+            expr::Expr::FunctionCall { lhs, arguments } | expr::Expr::StructInit { lhs, arguments } => {
+                for arg in arguments {
+                    identifier_counts(arg, symbols, declarations, expressions);
+                }
+                identifier_counts(lhs, symbols, declarations, expressions);
+            }
+            expr::Expr::Lambda {
+                body,
+                symbols: lambda_symbols,
+                ..
+            } => {
+                identifier_counts(body, &lambda_symbols, declarations, expressions);
+            }
+        }
+    } else {
+        unreachable!("Invalid Expression Index was provided!");
+    }
+}
+
+fn identifier_counts_decl(
+    decl: DeclIdx,
+    symbols: &SymbolTable,
+    declarations: &mut IndexVec<DeclIdx, decl::Decl>,
+    expressions: &mut IndexVec<ExprIdx, expr::Expr>,
+) {
+    if let Some(decl) = declarations.get_mut(decl) {
+        match decl {
+            decl::Decl::Missing => (),
+            decl::Decl::Variable { value, .. } => match value {
+                None => (),
+                Some(value) => identifier_counts(*value, symbols, declarations, expressions),
+            },
+            decl::Decl::Function { body, symbols, .. } => match body {
+                None => (),
+                Some(body) => identifier_counts(*body, &symbols.clone(), declarations, expressions),
+            },
+            decl::Decl::Operator { .. } => (),
+            decl::Decl::Class { body, .. } => {
+                identifier_counts(*body, symbols, declarations, expressions)
+            }
+            decl::Decl::Implementation { body, .. } => {
+                identifier_counts(*body, symbols, declarations, expressions)
+            }
+            decl::Decl::Module { body, .. } => {
+                identifier_counts(*body, symbols, declarations, expressions)
+            }
+            decl::Decl::Union { .. } => (),
+            decl::Decl::Struct { .. } => (),
+            decl::Decl::Using { .. } => (),
+            decl::Decl::Expr(expr) => identifier_counts(*expr, symbols, declarations, expressions),
+        };
+    } else {
+        unreachable!("invalid Declaration Index was provided!");
+    }
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum ArrowType {
+    Missing,
+    Arrow,
+    MutArrow,
+    OnceArrow,
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum Type {
+    Missing,
+    Unit,
+    Function {
+        arrow: ArrowType,
+        input: Box<Type>,
+        output: Box<Type>,
+    },
+    Applied {
+        applied: Box<Type>,
+        type_vars: Vec<Type>,
+    },
+    Reference {
+        mutable: bool,
+        type_: Box<Type>,
+    },
+    Pointer {
+        mutable: bool,
+        type_: Box<Type>,
+    },
+    Array {
+        type_: Box<Type>,
+        size: Option<Token>,
+    },
+    Tuple(Vec<Type>),
+    Lifetime(Token),
+    Basic(Token),
+    Var(Token),
+}
+impl Type {
+    pub fn lower(ty: Option<crate::reparse::types::Type>) -> Self {
+        if let Some(ty) = ty {
+            match ty {
+                crate::reparse::types::Type::Function(function) => Self::Function {
+                    arrow: match function.arrow_token() {
+                        None => ArrowType::Missing,
+                        Some(x) => match x.kind() {
+                            TokenKind::Arrow | TokenKind::BasicArrow => ArrowType::Arrow,
+                            TokenKind::MutArrow | TokenKind::BasicMutArrow => ArrowType::MutArrow,
+                            TokenKind::OnceArrow | TokenKind::BasicOnceArrow => {
+                                ArrowType::OnceArrow
+                            }
+                            _ => ArrowType::Missing,
+                        },
+                    },
+                    input: Box::new(Self::lower(function.input_type())),
+                    output: Box::new(Self::lower(function.output_type())),
+                },
+                crate::reparse::types::Type::Applied(applied) => Self::Applied {
+                    applied: Box::new(Self::lower(applied.type_())),
+                    type_vars: applied.vars().map(|x| Self::lower(Some(x))).collect(),
+                },
+                crate::reparse::types::Type::Reference(ref_) => Self::Reference {
+                    mutable: ref_.mutable(),
+                    type_: Box::new(Self::lower(ref_.type_())),
+                },
+                crate::reparse::types::Type::Pointer(pointer) => Self::Pointer {
+                    mutable: pointer.mutable(),
+                    type_: Box::new(Self::lower(pointer.type_())),
+                },
+                crate::reparse::types::Type::Grouping(grouping) => Self::lower(grouping.type_()),
+                crate::reparse::types::Type::Array(array) => Self::Array {
+                    type_: Box::new(Self::lower(array.type_())),
+                    size: array.size().map(|x| Token::lower(Some(x))),
+                },
+                crate::reparse::types::Type::Tuple(tuple) => {
+                    Self::Tuple(tuple.types().map(|x| Self::lower(Some(x))).collect())
+                }
+                crate::reparse::types::Type::Lifetime(lifetime) => {
+                    Self::Lifetime(Token::lower(lifetime.id()))
+                }
+                crate::reparse::types::Type::Basic(basic) => Self::Basic(Token::lower(basic.id())),
+                crate::reparse::types::Type::Var(var) => Self::Var(Token::lower(var.id())),
+                crate::reparse::types::Type::Unit(_) => Self::Unit,
+            }
+        } else {
+            Self::Missing
+        }
+    }
+
+    pub fn named_type(&self) -> Option<SmolStr> {
+        match self {
+            Type::Basic(token) => Some(token.str.clone()),
+            Type::Applied { applied, .. } => applied.named_type(),
+            _ => None,
+        }
+    }
+}
+
+pub fn into_ast(source: &str) -> (SourceFile, Vec<String>) {
+    let (tree, mut errors) = crate::reparse::into_tree(source);
+    let ast = SourceFile::lower(tree, &mut errors);
+    println!("{:#?}", ast);
+    (ast, errors)
+}

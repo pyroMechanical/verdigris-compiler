@@ -1,6 +1,8 @@
 use crate::ast;
 use crate::parser::data_types::TokenKind;
-use ast::{ArrowType, Decl, DeclIdx, Expr, ExprIdx, SymbolTable, TypeIdx};
+use ast::{ArrowType, DeclIdx, ExprIdx, SymbolTable, TypeIdx};
+use ast::decl::Decl;
+use ast::expr::Expr;
 use index_vec::{index_vec, IndexVec};
 use smol_str::SmolStr;
 use std::collections::VecDeque;
@@ -1089,7 +1091,7 @@ fn expr_type_constraints<'a>(
                     var_types,
                 );
                 let name = match &expressions[*rhs] {
-                    ast::Expr::Identifier { name, .. } => name.clone(),
+                    ast::expr::Expr::Identifier { name, .. } => name.clone(),
                     _ => unreachable!(),
                 };
                 let rhs_type = new_type_var(var_types);
