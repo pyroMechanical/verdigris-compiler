@@ -1,5 +1,5 @@
-use crate::parser::data_types::{TokenKind};
 use super::data_types::{SyntaxNode, SyntaxToken};
+use crate::parser::data_types::TokenKind;
 
 pub enum Pattern {
     Unit(UnitPattern),

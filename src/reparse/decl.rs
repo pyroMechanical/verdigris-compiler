@@ -1,8 +1,8 @@
-use crate::parser::data_types::{TokenKind};
-use super::data_types::{SyntaxNode, SyntaxToken, SyntaxElement};
+use super::data_types::{SyntaxElement, SyntaxNode, SyntaxToken};
 use super::expr;
 use super::patterns;
 use super::types;
+use crate::parser::data_types::TokenKind;
 pub enum Decl {
     Variable(Variable),
     Function(Function),
@@ -28,9 +28,7 @@ impl Decl {
             TokenKind::ModuleDecl => Decl::Module(Module(node)),
             TokenKind::UnionDecl => Decl::Union(Union(node)),
             TokenKind::StructDecl => Decl::Struct(Struct(node)),
-            TokenKind::ExprDecl => {
-                Decl::Expr(expr::Expr::cast(node.children().next()?)?)
-            },
+            TokenKind::ExprDecl => Decl::Expr(expr::Expr::cast(node.children().next()?)?),
             TokenKind::UsingDecl => Decl::Using(Using(node)),
             _ => return None,
         };
@@ -133,13 +131,12 @@ pub struct Constraint(SyntaxNode);
 impl Constraint {
     pub fn class(&self) -> Option<SyntaxToken> {
         self.0
-        .children_with_tokens()
-        .filter_map(|x| x.into_token()).find(|x| x.kind() == TokenKind::Identifier)
+            .children_with_tokens()
+            .filter_map(|x| x.into_token())
+            .find(|x| x.kind() == TokenKind::Identifier)
     }
     pub fn type_(&self) -> Option<types::Type> {
-        self.0
-        .children()
-        .find_map(types::Type::cast)
+        self.0.children().find_map(types::Type::cast)
     }
 }
 pub struct Class(SyntaxNode);
@@ -148,10 +145,17 @@ impl Class {
         self.0
             .children()
             .find(|x| x.kind() == TokenKind::ClassConstraintList)
-            .map(|x| x.children().filter(|x| x.kind() == TokenKind::ClassConstraint).map(|x| Constraint(x)))
+            .map(|x| {
+                x.children()
+                    .filter(|x| x.kind() == TokenKind::ClassConstraint)
+                    .map(|x| Constraint(x))
+            })
     }
     pub fn defined_class(&self) -> Option<SyntaxToken> {
-        self.0.children_with_tokens().filter_map(|x| x.into_token()).find(|x| x.kind() == TokenKind::Identifier)
+        self.0
+            .children_with_tokens()
+            .filter_map(|x| x.into_token())
+            .find(|x| x.kind() == TokenKind::Identifier)
     }
     pub fn defined_type(&self) -> Option<types::Type> {
         self.0.children().find_map(types::Type::cast)
@@ -166,10 +170,17 @@ impl Implementation {
         self.0
             .children()
             .find(|x| x.kind() == TokenKind::ClassConstraintList)
-            .map(|x| x.children().filter(|x| x.kind() == TokenKind::ClassConstraint).map(|x| Constraint(x)))
+            .map(|x| {
+                x.children()
+                    .filter(|x| x.kind() == TokenKind::ClassConstraint)
+                    .map(|x| Constraint(x))
+            })
     }
     pub fn defined_class(&self) -> Option<SyntaxToken> {
-        self.0.children_with_tokens().filter_map(|x| x.into_token()).find(|x| x.kind() == TokenKind::Identifier)
+        self.0
+            .children_with_tokens()
+            .filter_map(|x| x.into_token())
+            .find(|x| x.kind() == TokenKind::Identifier)
     }
     pub fn defined_type(&self) -> Option<types::Type> {
         self.0.children().find_map(types::Type::cast)

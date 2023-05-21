@@ -299,7 +299,12 @@ pub(crate) struct Parser<'a, 'b> {
 
 impl<'a, 'b> Parser<'a, 'b> {
     pub fn from_tokens(tokens: &'b [Token<'a>]) -> Self {
-        Self { tokens: tokens, cursor: 0,  events: vec![],errors: vec![] }
+        Self {
+            tokens: tokens,
+            cursor: 0,
+            events: vec![],
+            errors: vec![],
+        }
     }
 
     pub fn events(&self) -> Vec<Event<'a>> {
@@ -377,7 +382,7 @@ impl<'a, 'b> Parser<'a, 'b> {
             None => {
                 self.report_error(format!("expected {}", token_kind));
                 false
-                },
+            }
             Some(&(kind, _)) => {
                 if token_kind == kind {
                     self.advance();

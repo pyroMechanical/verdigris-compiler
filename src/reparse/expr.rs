@@ -1,6 +1,6 @@
-use crate::parser::data_types::{TokenKind};
-use super::data_types::{SyntaxNode, SyntaxToken, SyntaxElement};
+use super::data_types::{SyntaxElement, SyntaxNode, SyntaxToken};
 use super::patterns;
+use crate::parser::data_types::TokenKind;
 
 pub enum Expr {
     If(IfExpr),

@@ -1,7 +1,7 @@
-use std::io::{self, BufRead, Write};
 use std::env;
-use std::path::PathBuf;
 use std::fs::read_to_string;
+use std::io::{self, BufRead, Write};
+use std::path::PathBuf;
 
 mod ast;
 mod compile;
@@ -48,9 +48,9 @@ fn compile_file(path: PathBuf) {
     match source {
         Ok(source) => match compile::compile_source(source.as_str()) {
             Ok(_) => println!("Compile Success!"),
-            Err(_e) => ()
-        }
-        Err(e) => eprintln!("{}", e)
+            Err(_e) => (),
+        },
+        Err(e) => eprintln!("{}", e),
     }
 }
 
@@ -63,7 +63,7 @@ fn main() {
             let path: Result<PathBuf, _> = arg.try_into();
             match path {
                 Ok(path) => compile_file(path),
-                Err(e) => eprintln!("{}", e)
+                Err(e) => eprintln!("{}", e),
             }
         }
     }

@@ -1,5 +1,5 @@
-use super::data_types::{TokenKind, Parser};
-pub(crate) fn type_(parser: &mut Parser) -> bool{
+use super::data_types::{Parser, TokenKind};
+pub(crate) fn type_(parser: &mut Parser) -> bool {
     function_type(parser)
 }
 
@@ -37,7 +37,7 @@ pub fn is_type_token(token: Option<TokenKind>) -> bool {
     }
 }
 
-pub(crate) fn applied_type(parser: &mut Parser) -> bool{
+pub(crate) fn applied_type(parser: &mut Parser) -> bool {
     let checkpoint = parser.checkpoint();
     let mut succeeded = array_or_pointer_type(parser);
     if is_type_token(parser.peek()) {
@@ -50,7 +50,7 @@ pub(crate) fn applied_type(parser: &mut Parser) -> bool{
     succeeded
 }
 
-pub(crate) fn array_or_pointer_type(parser: &mut Parser) -> bool{
+pub(crate) fn array_or_pointer_type(parser: &mut Parser) -> bool {
     let checkpoint = parser.checkpoint();
     let mut succeeded = true;
     if parser.matched(TokenKind::Reference) {
@@ -91,7 +91,7 @@ pub(crate) fn array_or_pointer_type(parser: &mut Parser) -> bool{
     succeeded
 }
 
-pub(crate) fn paren_type(parser: &mut Parser) -> bool{
+pub(crate) fn paren_type(parser: &mut Parser) -> bool {
     let checkpoint = parser.checkpoint();
     let mut succeeded = true;
     if parser.matched(TokenKind::Paren) {
@@ -133,7 +133,7 @@ pub(crate) fn paren_type(parser: &mut Parser) -> bool{
     succeeded
 }
 
-pub(crate) fn basic_type(parser: &mut Parser) -> bool{
+pub(crate) fn basic_type(parser: &mut Parser) -> bool {
     let checkpoint = parser.checkpoint();
     let mut succeeded = true;
     if parser.matched(TokenKind::SingleQuote) {

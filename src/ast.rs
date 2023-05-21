@@ -15,7 +15,7 @@ pub struct SymbolTable {
     type_names: HashMap<SmolStr, TypeIdx>,
     operator_tokens: HashMap<SmolStr, usize>,
     namespaces: HashMap<SmolStr, SymbolTable>,
-    class_implementations: HashMap<SmolStr, Decl>
+    class_implementations: HashMap<SmolStr, Decl>,
 }
 impl SymbolTable {
     fn new() -> Self {
@@ -25,7 +25,7 @@ impl SymbolTable {
             type_names: HashMap::new(),
             operator_tokens: HashMap::new(),
             namespaces: HashMap::new(),
-            class_implementations: HashMap::new()
+            class_implementations: HashMap::new(),
         }
     }
     pub fn find_type(&self, t: &str) -> Option<TypeIdx> {
@@ -36,8 +36,8 @@ impl SymbolTable {
             None => return None,
             Some(ids) => match ids.get(index - 1) {
                 None => return None,
-                Some(id) => return self.value_declarations.get(*id)
-            }
+                Some(id) => return self.value_declarations.get(*id),
+            },
         }
     }
     pub fn find_namespace<'a>(&'a self, id: &str) -> Option<&'a SymbolTable> {
@@ -73,7 +73,7 @@ impl SourceFile {
         //14: f64
         //15: char
         //16: str
-        let mut types = index_vec![Decl::Missing; 17]; 
+        let mut types = index_vec![Decl::Missing; 17];
         let mut expressions: IndexVec<ExprIdx, Expr> = index_vec![];
         let mut declarations: IndexVec<DeclIdx, Decl> = index_vec![];
         let top_level_declarations = source
@@ -208,13 +208,14 @@ fn symbols_from_declarations(
                                         errors.push(format!("Attempted redefinition of implementation \"{}\" for type \"{}\"", class, name));
                                     }
                                     std::collections::hash_map::Entry::Vacant(vacant) => {
-                                        vacant.insert(declarations.get(*declaration).unwrap().clone());
+                                        vacant.insert(
+                                            declarations.get(*declaration).unwrap().clone(),
+                                        );
                                     }
                                 }
                             }
                             std::collections::hash_map::Entry::Vacant(_) => {
-                                errors
-                                    .push(format!("Could not find type \"{}\"", name));
+                                errors.push(format!("Could not find type \"{}\"", name));
                             }
                         }
                     }
@@ -239,7 +240,10 @@ fn symbols_from_declarations(
                 }
                 Decl::Operator { op, .. } => match symbols.operator_tokens.entry(op.str.clone()) {
                     std::collections::hash_map::Entry::Occupied(_) => {
-                        errors.push(format!("Attempted redefinition of operator token \"{}\"", op.str));
+                        errors.push(format!(
+                            "Attempted redefinition of operator token \"{}\"",
+                            op.str
+                        ));
                     }
                     std::collections::hash_map::Entry::Vacant(vacant) => {
                         vacant.insert(symbols.value_declarations.len());
@@ -323,7 +327,12 @@ fn identifier_counts(
                     identifier_counts_decl(declaration, symbols, declarations, expressions);
                 }
             }
-            Expr::Binary { lhs, rhs, op, op_idx } => {
+            Expr::Binary {
+                lhs,
+                rhs,
+                op,
+                op_idx,
+            } => {
                 match op_idx {
                     Some(_) => (),
                     None => match symbols.value_names.get(op.str()) {
@@ -333,13 +342,13 @@ fn identifier_counts(
                                 match expressions.get_mut(expr) {
                                     None => unreachable!("Invalid Expression Index!"),
                                     Some(expr) => match expr {
-                                        Expr::Binary{op_idx, ..} => *op_idx = Some(vec.len()),
-                                        _ => unreachable!()
-                                    }
+                                        Expr::Binary { op_idx, .. } => *op_idx = Some(vec.len()),
+                                        _ => unreachable!(),
+                                    },
                                 }
                             }
                         }
-                    }
+                    },
                 };
                 identifier_counts(lhs, symbols, declarations, expressions);
                 identifier_counts(rhs, symbols, declarations, expressions);
@@ -357,13 +366,13 @@ fn identifier_counts(
                                 match expressions.get_mut(expr) {
                                     None => unreachable!("Invalid Expression Index!"),
                                     Some(expr) => match expr {
-                                        Expr::Binary{op_idx, ..} => *op_idx = Some(vec.len()),
-                                        _ => unreachable!()
-                                    }
+                                        Expr::Binary { op_idx, .. } => *op_idx = Some(vec.len()),
+                                        _ => unreachable!(),
+                                    },
                                 }
                             }
                         }
-                    }
+                    },
                 };
                 identifier_counts(expr, symbols, declarations, expressions)
             }
@@ -411,9 +420,9 @@ fn identifier_counts(
                             match expressions.get_mut(expr) {
                                 None => unreachable!("Invalid Expression Index!"),
                                 Some(expr) => match expr {
-                                    Expr::Identifier{index, ..} => *index = Some(vec.len()),
-                                    _ => unreachable!()
-                                }
+                                    Expr::Identifier { index, .. } => *index = Some(vec.len()),
+                                    _ => unreachable!(),
+                                },
                             }
                         }
                     }
@@ -424,7 +433,10 @@ fn identifier_counts(
             | Expr::Dereference { expr }
             | Expr::Reference { expr, .. }
             | Expr::Return(expr) => identifier_counts(expr, symbols, declarations, expressions),
-            Expr::Path { lhs:_lhs, rhs:_rhs } => todo!(),
+            Expr::Path {
+                lhs: _lhs,
+                rhs: _rhs,
+            } => todo!(),
             Expr::FieldCall { lhs, .. } => {
                 identifier_counts(lhs, symbols, declarations, expressions)
             }
@@ -434,7 +446,11 @@ fn identifier_counts(
                 }
                 identifier_counts(lhs, symbols, declarations, expressions);
             }
-            Expr::Lambda {body, symbols: lambda_symbols, ..} => {
+            Expr::Lambda {
+                body,
+                symbols: lambda_symbols,
+                ..
+            } => {
                 identifier_counts(body, &lambda_symbols, declarations, expressions);
             }
         }
@@ -568,7 +584,9 @@ impl Pattern {
                     type_: Token::lower(tuple_struct.name()),
                     tuple: Box::new(Self::lower(tuple_struct.tuple())),
                 },
-                crate::reparse::patterns::Pattern::Grouping(grouping) => Self::lower(grouping.pattern()),
+                crate::reparse::patterns::Pattern::Grouping(grouping) => {
+                    Self::lower(grouping.pattern())
+                }
             }
         } else {
             Self::Missing
@@ -835,7 +853,15 @@ impl Decl {
         let type_ = decl.type_().map(|x| Type::lower(Some(x)));
         let mut symbols = SymbolTable::new();
         for arg in &args {
-            let decl = Decl::Variable{mutable: false, pattern: arg.clone(), type_: Some(Type::Var(Token{kind: TokenKind::Identifier, str: "".into()})), value: None};
+            let decl = Decl::Variable {
+                mutable: false,
+                pattern: arg.clone(),
+                type_: Some(Type::Var(Token {
+                    kind: TokenKind::Identifier,
+                    str: "".into(),
+                })),
+                value: None,
+            };
             let decl_idx: DeclIdx = declarations.len().into();
             declarations.push(decl);
             let names: Vec<SmolStr> = arg.identifiers();
@@ -1360,7 +1386,15 @@ impl Expr {
         let mut symbols = SymbolTable::new();
         let args: Vec<Pattern> = lambda.args().map(|x| Pattern::lower(Some(x))).collect();
         for arg in &args {
-            let decl = Decl::Variable{mutable: false, pattern: arg.clone(), type_: Some(Type::Var(Token{kind: TokenKind::Identifier, str: "".into()})), value: None};
+            let decl = Decl::Variable {
+                mutable: false,
+                pattern: arg.clone(),
+                type_: Some(Type::Var(Token {
+                    kind: TokenKind::Identifier,
+                    str: "".into(),
+                })),
+                value: None,
+            };
             let decl_idx: DeclIdx = declarations.len().into();
             declarations.push(decl);
             let names: Vec<SmolStr> = arg.identifiers();
@@ -1388,7 +1422,11 @@ impl Expr {
             }
         }
         let body = Expr::lower(lambda.body(), errors, types, declarations, expressions);
-        Self::Lambda {symbols, args, body }
+        Self::Lambda {
+            symbols,
+            args,
+            body,
+        }
     }
 
     fn lower_tuple(
@@ -1414,7 +1452,11 @@ impl Expr {
     ) -> Self {
         let op = Token::lower(prefix.operator());
         let expr = Expr::lower(prefix.expr(), errors, types, declarations, expressions);
-        Self::Prefix { op, op_idx: None, expr }
+        Self::Prefix {
+            op,
+            op_idx: None,
+            expr,
+        }
     }
 
     fn lower_binary_op(
@@ -1427,7 +1469,12 @@ impl Expr {
         let lhs = Expr::lower(binary.lhs(), errors, types, declarations, expressions);
         let op = Token::lower(binary.operator());
         let rhs = Expr::lower(binary.rhs(), errors, types, declarations, expressions);
-        Self::Binary { op, op_idx: None, lhs, rhs }
+        Self::Binary {
+            op,
+            op_idx: None,
+            lhs,
+            rhs,
+        }
     }
 
     fn lower_unsafe(

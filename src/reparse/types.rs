@@ -1,5 +1,5 @@
-use crate::parser::{TokenKind};
 use super::data_types::{SyntaxNode, SyntaxToken};
+use crate::parser::TokenKind;
 pub enum Type {
     //todo: add basic array types, basic function type, etc.
     Function(FunctionType),
