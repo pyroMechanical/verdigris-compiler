@@ -1,7 +1,7 @@
 mod data_types;
 use crate::ast;
 use crate::parser::data_types::TokenKind;
-use ast::{decl::Decl, expr::Expr, DeclIdx, ExprIdx, SymbolTable};
+use ast::{decl::Decl, expr::Expr, ExprIdx, SymbolTable};
 use data_types::{new_type_var, RewriteRule, State, Type};
 use index_vec::{index_vec, IndexVec};
 use std::collections::VecDeque;
@@ -41,102 +41,52 @@ fn type_constraints(
 }
 
 #[allow(unused)]
-fn function_return_type_constraints<'a>(
+fn function_return_type_constraints<'a, 'b>(
     body: crate::ast::ExprIdx,
-    scopes: &mut Vec<&'a SymbolTable>,
-    declarations: &'a IndexVec<DeclIdx, Decl>,
-    expressions: &'a IndexVec<ExprIdx, Expr>,
-    expr_types: &mut IndexVec<ExprIdx, Option<Type>>,
-    var_types: &mut usize,
+    state: &mut State<'a, 'b>,
 ) -> Vec<(Type, Type)> {
-    match &expressions[body] {
+    match &state.expressions[body] {
         Expr::Block {
             symbols,
             declarations: decls,
             terminator,
         } => {
-            scopes.push(symbols);
+            state.scopes.push(symbols);
             let mut constraints: Vec<(Type, Type)> = vec![];
             for declaration in decls {
-                match &declarations[*declaration] {
+                match &state.declarations[*declaration] {
                     Decl::Variable { value, .. } => match value {
                         None => (),
                         Some(expr_id) => {
-                            constraints.append(&mut function_return_type_constraints(
-                                *expr_id,
-                                scopes,
-                                declarations,
-                                expressions,
-                                expr_types,
-                                var_types,
-                            ));
+                            constraints
+                                .append(&mut function_return_type_constraints(*expr_id, state));
                         }
                     },
-                    Decl::Expr(expr) => constraints.append(&mut function_return_type_constraints(
-                        *expr,
-                        scopes,
-                        declarations,
-                        expressions,
-                        expr_types,
-                        var_types,
-                    )),
+                    Decl::Expr(expr) => {
+                        constraints.append(&mut function_return_type_constraints(*expr, state))
+                    }
                     _ => (),
                 }
             }
             match terminator {
                 None => (),
-                Some(terminator) => constraints.append(&mut function_return_type_constraints(
-                    *terminator,
-                    scopes,
-                    declarations,
-                    expressions,
-                    expr_types,
-                    var_types,
-                )),
+                Some(terminator) => {
+                    constraints.append(&mut function_return_type_constraints(*terminator, state))
+                }
             };
-            scopes.pop();
+            state.scopes.pop();
             constraints
         }
         Expr::Unit => vec![],
         Expr::Placeholder => vec![],
-        Expr::Grouping(expr_id) => function_return_type_constraints(
-            *expr_id,
-            scopes,
-            declarations,
-            expressions,
-            expr_types,
-            var_types,
-        ),
+        Expr::Grouping(expr_id) => function_return_type_constraints(*expr_id, state),
         Expr::Tuple(exprs) | Expr::ArrayConstructor(exprs) => exprs
             .iter()
-            .flat_map(|expr| {
-                function_return_type_constraints(
-                    *expr,
-                    scopes,
-                    declarations,
-                    expressions,
-                    expr_types,
-                    var_types,
-                )
-            })
+            .flat_map(|expr| function_return_type_constraints(*expr, state))
             .collect(),
         Expr::ArrayIndex { indexed, index } => {
-            let mut constraints = function_return_type_constraints(
-                *indexed,
-                scopes,
-                declarations,
-                expressions,
-                expr_types,
-                var_types,
-            );
-            constraints.append(&mut function_return_type_constraints(
-                *index,
-                scopes,
-                declarations,
-                expressions,
-                expr_types,
-                var_types,
-            ));
+            let mut constraints = function_return_type_constraints(*indexed, state);
+            constraints.append(&mut function_return_type_constraints(*index, state));
             constraints
         }
         Expr::If {
@@ -144,79 +94,25 @@ fn function_return_type_constraints<'a>(
             then,
             else_,
         } => {
-            let mut constraints = function_return_type_constraints(
-                *condition,
-                scopes,
-                declarations,
-                expressions,
-                expr_types,
-                var_types,
-            );
-            constraints.append(&mut function_return_type_constraints(
-                *then,
-                scopes,
-                declarations,
-                expressions,
-                expr_types,
-                var_types,
-            ));
+            let mut constraints = function_return_type_constraints(*condition, state);
+            constraints.append(&mut function_return_type_constraints(*then, state));
             match else_ {
                 None => (),
-                Some(else_) => constraints.append(&mut function_return_type_constraints(
-                    *else_,
-                    scopes,
-                    declarations,
-                    expressions,
-                    expr_types,
-                    var_types,
-                )),
+                Some(else_) => {
+                    constraints.append(&mut function_return_type_constraints(*else_, state))
+                }
             };
             constraints
         }
         Expr::While { condition, body } => {
-            let mut constraints = function_return_type_constraints(
-                *condition,
-                scopes,
-                declarations,
-                expressions,
-                expr_types,
-                var_types,
-            );
-            constraints.append(&mut function_return_type_constraints(
-                *body,
-                scopes,
-                declarations,
-                expressions,
-                expr_types,
-                var_types,
-            ));
+            let mut constraints = function_return_type_constraints(*condition, state);
+            constraints.append(&mut function_return_type_constraints(*body, state));
             constraints
         }
-        Expr::Loop(body) => function_return_type_constraints(
-            *body,
-            scopes,
-            declarations,
-            expressions,
-            expr_types,
-            var_types,
-        ),
+        Expr::Loop(body) => function_return_type_constraints(*body, state),
         Expr::Assignment { assigned, value } => {
-            let mut constraints = function_return_type_constraints(
-                *assigned,
-                scopes,
-                declarations,
-                expressions,
-                expr_types,
-                var_types,
-            );
-            constraints.append(&mut function_return_type_constraints(
-                *value,
-                scopes,
-                declarations,
-                expressions,
-                expr_types,
-                var_types,
-            ));
+            let mut constraints = function_return_type_constraints(*assigned, state);
+            constraints.append(&mut function_return_type_constraints(*value, state));
             constraints
         }
         Expr::Identifier { .. } => vec![],
@@ -224,66 +120,24 @@ fn function_return_type_constraints<'a>(
         Expr::Unsafe(expr)
         | Expr::Prefix { expr, .. }
         | Expr::Dereference { expr }
-        | Expr::Reference { expr, .. } => function_return_type_constraints(
-            *expr,
-            scopes,
-            declarations,
-            expressions,
-            expr_types,
-            var_types,
-        ),
+        | Expr::Reference { expr, .. } => function_return_type_constraints(*expr, state),
         Expr::Return(expr_id) => vec![(
-            expr_types[body].clone().unwrap(),
-            expr_types[*expr_id].clone().unwrap(),
+            state.expr_types[body].clone().unwrap(),
+            state.expr_types[*expr_id].clone().unwrap(),
         )],
         Expr::Path { lhs, rhs } | Expr::FieldCall { lhs, rhs } | Expr::Binary { lhs, rhs, .. } => {
-            let mut constraints = function_return_type_constraints(
-                *lhs,
-                scopes,
-                declarations,
-                expressions,
-                expr_types,
-                var_types,
-            );
-            constraints.append(&mut function_return_type_constraints(
-                *rhs,
-                scopes,
-                declarations,
-                expressions,
-                expr_types,
-                var_types,
-            ));
+            let mut constraints = function_return_type_constraints(*lhs, state);
+            constraints.append(&mut function_return_type_constraints(*rhs, state));
             constraints
         }
         Expr::FunctionCall { lhs, arguments } | Expr::StructInit { lhs, arguments } => {
-            let mut constraints = function_return_type_constraints(
-                *lhs,
-                scopes,
-                declarations,
-                expressions,
-                expr_types,
-                var_types,
-            );
+            let mut constraints = function_return_type_constraints(*lhs, state);
             for arg in arguments {
-                constraints.append(&mut function_return_type_constraints(
-                    *arg,
-                    scopes,
-                    declarations,
-                    expressions,
-                    expr_types,
-                    var_types,
-                ));
+                constraints.append(&mut function_return_type_constraints(*arg, state));
             }
             constraints
         }
-        Expr::Lambda { body, .. } => function_return_type_constraints(
-            *body,
-            scopes,
-            declarations,
-            expressions,
-            expr_types,
-            var_types,
-        ),
+        Expr::Lambda { body, .. } => function_return_type_constraints(*body, state),
         _ => unreachable!(),
     }
 }
