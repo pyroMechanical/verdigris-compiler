@@ -9,6 +9,34 @@ pub use data_types::{DeclIdx, ExprIdx, TypeIdx, SymbolTable, Token};
 
 pub use types::ArrowType;
 
+/// expects only the parts of the path that are namespaces.
+/// for example, if the full path is core::mem::x,
+/// the path provided to this function would be core::mem.
+fn namespace_from_path<'a, 'b>(
+    source: ExprIdx,
+    scopes: &'b Vec<&'a SymbolTable>,
+    expressions: &'a IndexVec<ExprIdx, expr::Expr>
+) -> Option<&'a SymbolTable> {
+    match expressions.get(source)? {
+        expr::Expr::Identifier { name, .. } => {
+            for scope in scopes.iter().rev() {
+                let scope = scope.find_namespace(name.str());
+                if scope.is_some() {
+                    return scope;
+                }
+            }
+        }
+        expr::Expr::Path { lhs, rhs } => {
+            let scope = namespace_from_path(*lhs, scopes, expressions)?;
+            if let Some(expr::Expr::Identifier { name, .. }) = expressions.get(*rhs) {
+                return scope.find_namespace(name.str());
+            }
+        }
+        _ => unreachable!(),
+    };
+    None
+}
+
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct SourceFile {
@@ -112,11 +140,16 @@ fn symbols_from_declarations(
                         }
                     }
                 }
-                decl::Decl::Function { name, body, .. } => {
+                decl::Decl::Function { name, body, symbols:fn_symbols,.. } => {
                     let name = name.str.clone();
+                    let fn_symbols = fn_symbols.clone();
                     match body {
                         None => (),
-                        Some(body) => identifier_counts(*body, &symbols, declarations, expressions),
+                        Some(body) => {
+                            let body = *body;
+                            identifier_counts(body, &fn_symbols, declarations, expressions);
+                            identifier_counts(body, &symbols, declarations, expressions);
+                        },
                     };
                     match symbols.value_names.entry(name.clone()) {
                         std::collections::hash_map::Entry::Occupied(_) => {
@@ -124,14 +157,10 @@ fn symbols_from_declarations(
                         }
                         std::collections::hash_map::Entry::Vacant(vacant) => {
                             vacant.insert(vec![symbols.value_declarations.len()]);
-                            symbols.value_declarations.push(
-                                declarations
-                                    .get(*declaration)
-                                    .expect("Invalid Declaration Index!")
-                                    .clone(),
-                            );
+                            let declaration = declarations.get(*declaration).expect("Invalid Declaration Index!").clone();
+                            symbols.value_declarations.push(declaration);
                         }
-                    }
+                    };
                 }
                 decl::Decl::Class {
                     defined_class,
@@ -139,7 +168,8 @@ fn symbols_from_declarations(
                     ..
                 } => {
                     let name = defined_class.str.clone();
-                    identifier_counts(*body, &symbols, declarations, expressions);
+                    let index = *body;
+                    identifier_counts(index, &symbols, declarations, expressions);
                     match symbols.type_names.entry(name.clone()) {
                         std::collections::hash_map::Entry::Occupied(_) => {
                             errors.push(format!("Attempted redefinition of symbol \"{}\"", name));
@@ -154,6 +184,16 @@ fn symbols_from_declarations(
                             );
                         }
                     }
+                    match symbols.namespaces.entry(name.clone()) {
+                        std::collections::hash_map::Entry::Occupied(_) => {
+                            errors.push(format!("Attempted redefinition of namespace \"{}\"", name));
+                        }
+                        std::collections::hash_map::Entry::Vacant(vacant) => {
+                            if let expr::Expr::Block { symbols, ..} = &expressions[index] {
+                                vacant.insert(symbols.clone());
+                            }
+                        }
+                    }
                 }
                 decl::Decl::Implementation {
                     defined_class,
@@ -162,8 +202,9 @@ fn symbols_from_declarations(
                     ..
                 } => {
                     let name = defined_type.named_type();
+                    let index = *body;
                     let class = defined_class.str.clone();
-                    identifier_counts(*body, &symbols, declarations, expressions);
+                    identifier_counts(index, &symbols, declarations, expressions);
                     if let Some(name) = name {
                         match symbols.namespaces.entry(name.clone()) {
                             std::collections::hash_map::Entry::Occupied(mut occupied) => {
@@ -178,6 +219,17 @@ fn symbols_from_declarations(
                                         );
                                     }
                                 }
+
+                                match table.namespaces.entry(class.clone()) {
+                                    std::collections::hash_map::Entry::Occupied(_) => {
+                                        errors.push(format!("Impl for class \"{}\" for type \"{}\" already exists!", class, name));
+                                    }
+                                    std::collections::hash_map::Entry::Vacant(vacant) => {
+                                        if let expr::Expr::Block { symbols, ..} = &expressions[index] {
+                                            vacant.insert(symbols.clone());
+                                        }
+                                    }
+                                }
                             }
                             std::collections::hash_map::Entry::Vacant(_) => {
                                 errors.push(format!("Could not find type \"{}\"", name));
@@ -187,7 +239,8 @@ fn symbols_from_declarations(
                 }
                 decl::Decl::Module { name, body } => {
                     let name = name.str.clone();
-                    identifier_counts(*body, &symbols, declarations, expressions);
+                    let index = *body;
+                    identifier_counts(index, &symbols, declarations, expressions);
                     match symbols.type_names.entry(name.clone()) {
                         std::collections::hash_map::Entry::Occupied(_) => {
                             errors.push(format!("Attempted redefinition of symbol \"{}\"", name));
@@ -200,6 +253,18 @@ fn symbols_from_declarations(
                                     .expect("Invalid Declaration Index!")
                                     .clone(),
                             );
+                        }
+                    }
+
+                    match symbols.namespaces.entry(name.clone()) {
+                        std::collections::hash_map::Entry::Occupied(_) => {
+                            errors.push(format!("Attempted redefinition of namespace \"{}\"", name));
+                        }
+                        std::collections::hash_map::Entry::Vacant(vacant) => {
+                            if let expr::Expr::Block { symbols, ..} = &expressions[index] {
+                                vacant.insert(symbols.clone());
+                            }
+                            
                         }
                     }
                 }
@@ -238,6 +303,14 @@ fn symbols_from_declarations(
                                 );
                             }
                         }
+
+                        match symbols.namespaces.entry(name.clone()) {
+                            std::collections::hash_map::Entry::Occupied(_) => errors
+                            .push(format!("Namespace \"{}\" already exists!", name)),
+                            std::collections::hash_map::Entry::Vacant(vacant) => {
+                                vacant.insert(SymbolTable::new());
+                            },
+                        }
                     }
                 }
                 decl::Decl::Struct { defined, .. } => {
@@ -256,6 +329,14 @@ fn symbols_from_declarations(
                                         .clone(),
                                 );
                             }
+                        }
+
+                        match symbols.namespaces.entry(name.clone()) {
+                            std::collections::hash_map::Entry::Occupied(_) => errors
+                            .push(format!("Namespace \"{}\" already exists!", name)),
+                            std::collections::hash_map::Entry::Vacant(vacant) => {
+                                vacant.insert(SymbolTable::new());
+                            },
                         }
                     }
                 }
@@ -399,14 +480,31 @@ fn identifier_counts(
             | expr::Expr::Reference { expr, .. }
             | expr::Expr::Return(expr) => identifier_counts(expr, symbols, declarations, expressions),
             expr::Expr::Path {
-                lhs: _lhs,
-                rhs: _rhs,
-            } => todo!(),
+                lhs,
+                rhs,
+            } => {
+                //todo!() clean this shit up by removing clone of expressions vector while still finding
+                //symbol table
+                identifier_counts(lhs, symbols, declarations, expressions);
+                let expr = expressions.clone();
+                let scope = namespace_from_path(lhs, &vec![symbols], &expr);
+                match scope {
+                    Some(scope) => identifier_counts(rhs, &scope, declarations, expressions),
+                    None => ()
+                }
+                
+            },
             expr::Expr::FieldCall { lhs, .. } => {
                 identifier_counts(lhs, symbols, declarations, expressions)
             }
-            expr::Expr::FunctionCall { lhs, arguments } | expr::Expr::StructInit { lhs, arguments } => {
+            expr::Expr::FunctionCall { lhs, arguments } => {
                 for arg in arguments {
+                    identifier_counts(arg, symbols, declarations, expressions);
+                }
+                identifier_counts(lhs, symbols, declarations, expressions);
+            },
+            expr::Expr::StructInit { lhs, arguments } => {
+                for (_, arg) in arguments {
                     identifier_counts(arg, symbols, declarations, expressions);
                 }
                 identifier_counts(lhs, symbols, declarations, expressions);

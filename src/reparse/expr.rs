@@ -276,16 +276,43 @@ impl ArrayIndexExpr {
             .nth(1)
     }
 }
+pub struct StructField(SyntaxNode);
+impl StructField {
+    pub fn name(&self) -> Option<SyntaxToken> {
+        let result = self
+            .0
+            .children_with_tokens()
+            .filter_map(|x| x.into_token())
+            .find(|x| x.kind() == TokenKind::Identifier);
+        match result {
+            None => self
+                .0
+                .children()
+                .find(|x| x.kind() == TokenKind::IdentifierExpr)
+                .and_then(|x| {
+                    x.children_with_tokens()
+                        .filter_map(|x| x.into_token())
+                        .find(|x| x.kind() == TokenKind::Identifier)
+                }),
+            x => x,
+        }
+    }
+    pub fn expression(&self) -> Option<Expr> {
+        self.0.children().find_map(Expr::cast)
+    }
+}
+
 pub struct StructInitExpr(SyntaxNode);
 impl StructInitExpr {
     pub fn lhs(&self) -> Option<Expr> {
         self.0.children().find_map(Expr::cast)
     }
-    pub fn values(&self) -> impl Iterator<Item = Expr> {
+    pub fn values(&self) -> impl Iterator<Item = StructField> {
         self.0
             .children_with_tokens()
             .skip_while(|x| x.kind() != TokenKind::Brace)
             .filter_map(|x| x.into_node())
-            .filter_map(Expr::cast)
+            .filter(|x| x.kind() == TokenKind::StructField)
+            .map(|x| StructField(x))
     }
 }

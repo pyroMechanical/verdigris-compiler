@@ -2,6 +2,7 @@ pub mod data_types;
 mod decl;
 mod expr;
 mod patterns;
+mod tests;
 mod types;
 pub use crate::parser::data_types::{ParsedTree, TokenKind};
 use crate::parser::data_types::{Parser, TreeBuilder};

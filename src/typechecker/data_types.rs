@@ -2,6 +2,7 @@ use crate::ast;
 use ast::{ArrowType, SymbolTable, TypeIdx, expr::Expr, decl::Decl, DeclIdx, ExprIdx};
 use smol_str::SmolStr;
 use index_vec::IndexVec;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 #[allow(unused)]
@@ -10,14 +11,8 @@ pub(crate) struct RewriteRule {
     pub(crate) replaced_by: Type,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TypeVarID(usize);
-impl TypeVarID {
-    fn _increment(&mut self) -> Self {
-        self.0 += 1;
-        *self
-    }
-}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TypeVarID(pub usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct LifetimeID(usize);
@@ -29,11 +24,13 @@ impl LifetimeID {
 }
 
 pub(crate) struct State<'a, 'b> {
-    pub(crate) scopes: &'b mut Vec<&'a SymbolTable>,
+    pub(crate) scopes: &'a mut Vec<&'a SymbolTable>,
     pub(crate) declarations: &'a IndexVec<DeclIdx, Decl>,
+    pub(crate) decl_types: &'a HashMap<DeclIdx, Type>,
     pub(crate) expressions: &'a IndexVec<ExprIdx, Expr>,
     pub(crate) expr_types: &'b mut IndexVec<ExprIdx, Option<Type>>,
-    pub(crate) var_types: &'b mut usize
+    pub(crate) var_types: &'b mut usize,
+    pub(crate) map: &'b mut HashMap<String, usize>
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,6 +46,7 @@ pub(crate) enum Type {
         mutable: bool,
     }, //% and %mut
     TypeVar(TypeVarID),            // 'T
+    Unknown(TypeVarID),            // all types that are unknown from the source file, but have exactly one correct answer
     Lifetime(LifetimeID),          // #a
     Arrow,                         // (->)
     MutArrow,                      // (*>)
@@ -81,6 +79,7 @@ impl Type {
     pub(crate) fn lower(
         t: &crate::ast::types::Type,
         scopes: &Vec<&SymbolTable>,
+        map: &mut HashMap<String, usize>,
         vartypes: &mut usize,
     ) -> Option<Self> {
         let result = match t {
@@ -97,25 +96,25 @@ impl Type {
                     ArrowType::MutArrow => Self::MutArrow,
                     ArrowType::OnceArrow => Self::OnceArrow,
                 });
-                let input = Self::lower(input, scopes, vartypes)?;
-                let output = Self::lower(output, scopes, vartypes)?;
+                let input = Self::lower(input, scopes, map, vartypes)?;
+                let output = Self::lower(output, scopes, map, vartypes)?;
                 Self::Applied(arrow, vec![input, output])
             }
             ast::types::Type::Applied { applied, type_vars } => {
-                let applied = Box::new(Self::lower(applied, scopes, vartypes)?);
+                let applied = Box::new(Self::lower(applied, scopes, map, vartypes)?);
                 let type_vars = type_vars
                     .iter()
-                    .map(|x| Self::lower(x, scopes, vartypes))
+                    .map(|x| Self::lower(x, scopes, map, vartypes))
                     .flatten()
                     .collect();
                 Self::Applied(applied, type_vars)
             }
             ast::types::Type::Reference { mutable, type_ } => {
-                let type_ = Self::lower(type_, scopes, vartypes)?;
+                let type_ = Self::lower(type_, scopes, map, vartypes)?;
                 Self::Applied(Box::new(Self::Reference { mutable: *mutable }), vec![type_])
             }
             ast::types::Type::Pointer { mutable, type_ } => {
-                let type_ = Self::lower(type_, scopes, vartypes)?;
+                let type_ = Self::lower(type_, scopes, map, vartypes)?;
                 Self::Applied(Box::new(Self::Pointer { mutable: *mutable }), vec![type_])
             }
             ast::types::Type::Array { type_, size } => {
@@ -127,7 +126,7 @@ impl Type {
                     },
                 };
                 let array = Box::new(Self::Array(str));
-                let type_ = Self::lower(type_, scopes, vartypes)?;
+                let type_ = Self::lower(type_, scopes, map, vartypes)?;
                 Self::Applied(array, vec![type_])
             }
             ast::types::Type::Tuple(types) => {
@@ -135,7 +134,7 @@ impl Type {
                 let tuple = Box::new(Self::Tuple(size));
                 let types: Vec<Self> = types
                     .iter()
-                    .map(|x| Self::lower(x, scopes, vartypes))
+                    .map(|x| Self::lower(x, scopes, map, vartypes))
                     .flatten()
                     .collect();
                 if size != types.len() {
@@ -144,10 +143,16 @@ impl Type {
                     Self::Applied(tuple, types)
                 }
             }
-            ast::types::Type::Lifetime(_) => {
+            ast::types::Type::Lifetime(id) => match map.entry(id.str().into()) {
+                std::collections::hash_map::Entry::Occupied(occupied) => {
+                    Self::Lifetime(LifetimeID(*occupied.get()))
+                },
+                std::collections::hash_map::Entry::Vacant(vacant) => {
                 let x = *vartypes;
+                vacant.insert(x);
                 *vartypes += 1;
                 Self::Lifetime(LifetimeID(x))
+                }
             }
             ast::types::Type::Basic(name) => {
                 macro_rules! name_match {
@@ -193,14 +198,24 @@ impl Type {
                     Some(id) => Self::Basic(id),
                 }
             }
-            ast::types::Type::Var(_) => new_type_var(vartypes),
+            ast::types::Type::Var(id) => match map.entry(id.str().into()) {
+                std::collections::hash_map::Entry::Occupied(occupied) => {
+                    Self::TypeVar(TypeVarID(*occupied.get()))
+                },
+                std::collections::hash_map::Entry::Vacant(vacant) => {
+                let x = *vartypes;
+                vacant.insert(x);
+                *vartypes += 1;
+                Self::TypeVar(TypeVarID(x))
+                }
+            },
         };
         Some(result)
     }
 }
 
-pub(crate) fn new_type_var(count: &mut usize) -> Type {
+pub(crate) fn new_unknown_type(count: &mut usize) -> Type {
     let x = *count;
     *count += 1;
-    Type::TypeVar(TypeVarID(x))
+    Type::Unknown(TypeVarID(x))
 }

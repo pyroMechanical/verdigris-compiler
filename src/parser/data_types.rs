@@ -163,6 +163,8 @@ pub enum TokenKind {
     ArrayIndexExpr,
     StructInitExpr,
 
+    StructField,
+
     //pattern nodes
     UnitPattern, // '()'
     GroupingPattern,
@@ -191,7 +193,6 @@ pub enum TokenKind {
     ArrayType,
     TupleType,
     FunctionType,
-    TypeConstraint,
 
     //declaration nodes
     VariableDecl,
@@ -244,7 +245,7 @@ impl rowan::Language for Verdigris {
         kind.into()
     }
 }
-
+#[derive(Debug, PartialEq, Eq)]
 pub struct ParsedTree {
     pub tree: GreenNode,
     pub errors: Vec<String>,
@@ -261,23 +262,25 @@ fn print_syntax_node(depth: usize, node: &rowan::SyntaxNode<Verdigris>) {
     let kind = node.kind();
     let children = node.children_with_tokens();
     let spacing = "  ".repeat(depth);
-    println!("{spacing}{kind}");
+    println!("{spacing}{kind} {{");
     for child in children {
         match child {
             rowan::NodeOrToken::Node(n) => print_syntax_node(depth + 1, &n),
             rowan::NodeOrToken::Token(t) => print_syntax_token(depth + 1, &t),
         }
     }
+    println!("{spacing}}}");
 }
 
 fn print_syntax_token(depth: usize, token: &rowan::SyntaxToken<Verdigris>) {
     let kind = token.kind();
-    if kind == TokenKind::WhiteSpace {
-        return;
-    }
+    //if kind == TokenKind::WhiteSpace {
+    //    return;
+    //}
     let spacing = "  ".repeat(depth);
-    let str = token.text();
-    println!("{spacing}{kind} \"{str}\"");
+    let start:usize = token.text_range().start().into();
+    let end:usize = token.text_range().end().into();
+    println!("{spacing}{kind} [{start}..{end}]");
 }
 
 type Token<'a> = (TokenKind, &'a str);

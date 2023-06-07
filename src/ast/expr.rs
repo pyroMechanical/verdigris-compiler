@@ -76,7 +76,7 @@ pub enum Expr {
     },
     StructInit {
         lhs: ExprIdx,
-        arguments: Vec<ExprIdx>,
+        arguments: Vec<(Token, ExprIdx)>,
     },
     Lambda {
         symbols: SymbolTable,
@@ -584,7 +584,7 @@ impl Expr {
         let lhs = Expr::lower(struct_init.lhs(), errors, types, declarations, expressions);
         let values = struct_init
             .values()
-            .map(|x| Expr::lower(Some(x), errors, types, declarations, expressions))
+            .map(|x| (Token::lower(x.name()), Expr::lower(x.expression(), errors, types, declarations, expressions)))
             .collect();
         Self::StructInit {
             lhs,

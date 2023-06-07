@@ -249,10 +249,17 @@ fn struct_init(parser: &mut Parser, _: usize) -> bool {
         && parser.peek().is_some()
         && parser.peek() != Some(TokenKind::CloseBrace)
     {
+        parser.start_node(TokenKind::StructField);
+        let checkpoint = parser.checkpoint();
         last_succeeded &= parser.expect(TokenKind::Identifier);
         if parser.matched(TokenKind::Colon) {
             last_succeeded &= expr(parser, false, true);
         }
+        else {
+            parser.start_node_at(checkpoint, TokenKind::IdentifierExpr);
+            parser.finish_node();
+        }
+        parser.finish_node();
         if !parser.matched(TokenKind::Comma) {
             break;
         }
@@ -263,26 +270,32 @@ fn struct_init(parser: &mut Parser, _: usize) -> bool {
 pub(crate) fn path(parser: &mut Parser, _: usize) -> bool {
     assert!(parser.peek() == Some(TokenKind::Path));
     parser.advance();
+    
     if parser.matched(TokenKind::Brace) {
-        let mut last_succeeded = true;
-        while last_succeeded
-            && parser.peek().is_some()
-            && parser.peek() != Some(TokenKind::CloseBrace)
-        {
-            let checkpoint = parser.checkpoint();
-            parser.expect(TokenKind::Identifier);
-            if parser.peek() == Some(TokenKind::Path) {
-                last_succeeded = path(parser, 0);
-                parser.start_node_at(checkpoint, TokenKind::PathExpr);
-            }
-            if !parser.matched(TokenKind::Comma) {
-                break;
-            }
-        }
-        parser.expect(TokenKind::CloseBrace);
-        last_succeeded
+        todo!("this whole section needs redone");
+        //let mut last_succeeded = true;
+        //while last_succeeded
+        //    && parser.peek().is_some()
+        //    && parser.peek() != Some(TokenKind::CloseBrace)
+        //{
+        //    let checkpoint = parser.checkpoint();
+        //    parser.start_node(TokenKind::IdentifierExpr);
+        //    parser.expect(TokenKind::Identifier);
+        //    parser.finish_node();
+        //    if parser.peek() == Some(TokenKind::Path) {
+        //        last_succeeded = path(parser, 0);
+        //        parser.start_node_at(checkpoint, TokenKind::PathExpr);
+        //    }
+        //    if !parser.matched(TokenKind::Comma) {
+        //        break;
+        //    }
+        //}
+        //parser.expect(TokenKind::CloseBrace);
+        //last_succeeded
     } else {
+        parser.start_node(TokenKind::IdentifierExpr);
         parser.expect(TokenKind::Identifier);
+        parser.finish_node();
         true
     }
 }

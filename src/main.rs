@@ -63,7 +63,7 @@ fn main() {
             let path: Result<PathBuf, _> = arg.try_into();
             match path {
                 Ok(path) => compile_file(path),
-                Err(e) => eprintln!("{}", e),
+                Err(_) => unreachable!(),
             }
         }
     }

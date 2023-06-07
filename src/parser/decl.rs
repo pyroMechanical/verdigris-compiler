@@ -59,12 +59,10 @@ fn class_constraint(parser: &mut Parser) -> bool {
     let mut succeeded = true;
     succeeded &= parser.expect(TokenKind::Identifier);
     succeeded &= types::type_(parser);
-    if succeeded {
-        parser.start_node_at(checkpoint, TokenKind::ClassConstraint);
-    } else {
+    if !succeeded {
         parser.start_node_at(checkpoint, TokenKind::ParseError);
+        parser.finish_node();
     }
-    parser.finish_node();
     succeeded
 }
 fn class_decl(parser: &mut Parser) {
@@ -85,20 +83,15 @@ fn class_decl(parser: &mut Parser) {
     } else {
         class_constraint(parser);
         if parser.matched(TokenKind::WideArrow) {
-            parser.start_node_at(constraint, TokenKind::TypeConstraint);
+            parser.start_node_at(constraint, TokenKind::ClassConstraint);
             parser.finish_node();
             class_constraint(parser);
         }
     }
-    if parser.matched(TokenKind::Brace) {
-        let mut last_succeeded = true;
-        while last_succeeded
-            && parser.peek().is_some()
-            && parser.peek() != Some(TokenKind::CloseBrace)
-        {
-            last_succeeded = declaration(parser);
-        }
-        parser.expect(TokenKind::CloseBrace);
+    if parser.peek() == Some(TokenKind::Brace) {
+        parser.start_node(TokenKind::BlockExpr.into());
+        expr::block_expr(parser);
+        parser.finish_node();
     }
     parser.finish_node();
 }
@@ -120,20 +113,15 @@ fn implementation_decl(parser: &mut Parser) {
     } else {
         class_constraint(parser);
         if parser.matched(TokenKind::WideArrow) {
-            parser.start_node_at(constraint, TokenKind::TypeConstraint);
+            parser.start_node_at(constraint, TokenKind::ClassConstraint);
             parser.finish_node();
             class_constraint(parser);
         }
     }
-    if parser.matched(TokenKind::Brace) {
-        let mut last_succeeded = true;
-        while last_succeeded
-            && parser.peek().is_some()
-            && parser.peek() != Some(TokenKind::CloseBrace)
-        {
-            last_succeeded = declaration(parser);
-        }
-        parser.expect(TokenKind::CloseBrace);
+    if parser.peek() == Some(TokenKind::Brace) {
+        parser.start_node(TokenKind::BlockExpr.into());
+        expr::block_expr(parser);
+        parser.finish_node();
     }
     parser.finish_node();
 }
@@ -236,7 +224,9 @@ fn module_decl(parser: &mut Parser) {
     parser.advance();
     parser.expect(TokenKind::Identifier);
     if parser.peek() == Some(TokenKind::Brace) {
+        parser.start_node(TokenKind::BlockExpr.into());
         expr::block_expr(parser);
+        parser.finish_node();
     } else {
         parser.expect(TokenKind::Semicolon);
     }
