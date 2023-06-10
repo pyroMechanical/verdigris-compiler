@@ -1,0 +1,5 @@
+infixl + 4; //operator token declaration
+
+fn (x + y) : i32 -> i32 -> i32; //function declaration
+
+5 + 2; //use of declared operator

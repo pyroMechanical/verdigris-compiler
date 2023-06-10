@@ -373,21 +373,11 @@ impl Expr {
                 match symbols.value_names.entry(name) {
                     std::collections::hash_map::Entry::Occupied(mut occupied) => {
                         occupied.get_mut().push(symbols.value_declarations.len());
-                        symbols.value_declarations.push(
-                            declarations
-                                .get(decl_idx)
-                                .expect("Invalid Declaration Index!")
-                                .clone(),
-                        );
+                        symbols.value_declarations.push(decl_idx);
                     }
                     std::collections::hash_map::Entry::Vacant(vacant) => {
                         vacant.insert(vec![symbols.value_declarations.len()]);
-                        symbols.value_declarations.push(
-                            declarations
-                                .get(decl_idx)
-                                .expect("Invalid Declaration Index!")
-                                .clone(),
-                        );
+                        symbols.value_declarations.push(decl_idx);
                     }
                 }
             }

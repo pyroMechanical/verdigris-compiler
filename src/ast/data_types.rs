@@ -10,11 +10,11 @@ index_vec::define_index_type! {pub struct ExprIdx = usize;}
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct SymbolTable {
     pub(crate) value_names: HashMap<SmolStr, Vec<usize>>,
-    pub(crate) value_declarations: Vec<super::decl::Decl>,
+    pub(crate) value_declarations: Vec<DeclIdx>,
     pub(crate) type_names: HashMap<SmolStr, TypeIdx>,
     pub(crate) operator_tokens: HashMap<SmolStr, usize>,
     pub(crate) namespaces: HashMap<SmolStr, SymbolTable>,
-    pub(crate) class_implementations: HashMap<SmolStr, super::decl::Decl>,
+    pub(crate) class_implementations: HashMap<SmolStr, DeclIdx>,
 }
 impl SymbolTable {
     pub(crate) fn new() -> Self {
@@ -30,12 +30,12 @@ impl SymbolTable {
     pub fn find_type(&self, t: &str) -> Option<TypeIdx> {
         self.type_names.get(t).map(|&x| x)
     }
-    pub fn find_identifier<'a>(&'a self, id: &str, index: usize) -> Option<&'a super::decl::Decl> {
+    pub fn find_identifier<'a>(&'a self, id: &str, index: usize) -> Option<DeclIdx> {
         match self.value_names.get(id) {
             None => return None,
             Some(ids) => match ids.get(index - 1) {
                 None => return None,
-                Some(id) => return self.value_declarations.get(*id),
+                Some(id) => return self.value_declarations.get(*id).copied(),
             },
         }
     }

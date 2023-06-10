@@ -121,21 +121,11 @@ fn symbols_from_declarations(
                         match symbols.value_names.entry(name) {
                             std::collections::hash_map::Entry::Occupied(mut occupied) => {
                                 occupied.get_mut().push(symbols.value_declarations.len());
-                                symbols.value_declarations.push(
-                                    declarations
-                                        .get(*declaration)
-                                        .expect("Invalid Declaration Index!")
-                                        .clone(),
-                                );
+                                symbols.value_declarations.push(*declaration);
                             }
                             std::collections::hash_map::Entry::Vacant(vacant) => {
                                 vacant.insert(vec![symbols.value_declarations.len()]);
-                                symbols.value_declarations.push(
-                                    declarations
-                                        .get(*declaration)
-                                        .expect("Invalid Declaration Index!")
-                                        .clone(),
-                                );
+                                symbols.value_declarations.push(*declaration);
                             }
                         }
                     }
@@ -157,8 +147,7 @@ fn symbols_from_declarations(
                         }
                         std::collections::hash_map::Entry::Vacant(vacant) => {
                             vacant.insert(vec![symbols.value_declarations.len()]);
-                            let declaration = declarations.get(*declaration).expect("Invalid Declaration Index!").clone();
-                            symbols.value_declarations.push(declaration);
+                            symbols.value_declarations.push(*declaration);
                         }
                     };
                 }
@@ -214,9 +203,7 @@ fn symbols_from_declarations(
                                         errors.push(format!("Attempted redefinition of implementation \"{}\" for type \"{}\"", class, name));
                                     }
                                     std::collections::hash_map::Entry::Vacant(vacant) => {
-                                        vacant.insert(
-                                            declarations.get(*declaration).unwrap().clone(),
-                                        );
+                                        vacant.insert(*declaration);
                                     }
                                 }
 
@@ -277,12 +264,7 @@ fn symbols_from_declarations(
                     }
                     std::collections::hash_map::Entry::Vacant(vacant) => {
                         vacant.insert(symbols.value_declarations.len());
-                        symbols.value_declarations.push(
-                            declarations
-                                .get(*declaration)
-                                .expect("Invalid Declaration Index!")
-                                .clone(),
-                        );
+                        symbols.value_declarations.push(*declaration);
                     }
                 },
                 decl::Decl::Using { .. } => {}

@@ -52,6 +52,7 @@ pub(crate) enum Type {
     MutArrow,                      // (*>)
     OnceArrow,                     // (+>)
     Struct {
+        struct_type: Box<Type>,
         values: Vec<(SmolStr, Type)>,
         complete: bool,
     },
