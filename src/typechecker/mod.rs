@@ -5,7 +5,7 @@ use ast::{decl::Decl, DeclIdx, expr::Expr, ExprIdx, SymbolTable};
 use data_types::{new_unknown_type, RewriteRule, State, Type, TypeVarID};
 use index_vec::{index_vec, IndexVec};
 use smol_str::SmolStr;
-use std::{collections::{VecDeque, HashMap}};
+use std::{collections::{VecDeque, HashMap, HashSet}};
 
 fn identifier_definition<'a>(
     scopes: &'a Vec<&SymbolTable>,
@@ -95,12 +95,12 @@ fn convert_var_to_unknown(t: &Type, map: &mut HashMap<TypeVarID, usize>, var_typ
 fn type_constraints(
     source: ast::SourceFile,
     expr_types: &mut IndexVec<ExprIdx, Option<Type>>,
+    decl_types: &mut HashMap<DeclIdx, Type>,
 ) -> Vec<(Type, Type)> {
     let mut symbol_tables = vec![&source.symbol_names];
     let mut type_indices = vec![];
     let mut var_types = 0;
     let mut map = HashMap::new();
-    let mut decl_types: HashMap<DeclIdx, Type> = HashMap::new();
     for (idx, declaration) in source.declarations.iter().enumerate() {
         let idx: DeclIdx = idx.into();
         match declaration {
@@ -626,14 +626,14 @@ fn expr_type_constraints<'a, 'b>(source: ExprIdx, state: &mut State<'a, 'b>) -> 
             }
             Expr::StructInit { lhs, arguments  } => {
                 let type_ = type_from_path_expression(*lhs, state).or_else(|| Some(new_unknown_type(state.var_types)));
-                state.expr_types[source] = type_.clone();
+                state.expr_types[*lhs] = type_.clone();
                 let mut constraints = vec![];
                 let mut values: Vec<(SmolStr, Type)> = vec![];
                 for (name, argument) in arguments {
                     constraints.append(&mut expr_type_constraints(*argument, state));
                     values.push((name.str.clone(), state.expr_types[*argument].clone().unwrap_or(new_unknown_type(state.var_types))));
                 }
-                let struct_type = Type::Struct{struct_type: Box::new(type_.unwrap_or(new_unknown_type(state.var_types))), values, complete:true};
+                state.expr_types[source] = Some(Type::Struct{struct_type: Box::new(type_.unwrap_or(new_unknown_type(state.var_types))), values, complete:true});
                 constraints
             }
             Expr::FieldCall { lhs, rhs } => {
@@ -687,7 +687,7 @@ fn namespace_from_path<'a, 'b>(
     None
 }
 
-fn solve_constraints(constraints: Vec<(Type, Type)>, types: &IndexVec<crate::ast::TypeIdx, Decl>) -> (Vec<RewriteRule>, Vec<String>) {
+fn solve_constraints(constraints: Vec<(Type, Type)>) -> (Vec<RewriteRule>, Vec<String>) {
     let mut constraints: VecDeque<_> = constraints.into();
     let mut rewrite_rules = vec![];
     let mut errors = vec![];
@@ -722,19 +722,13 @@ fn solve_constraints(constraints: Vec<(Type, Type)>, types: &IndexVec<crate::ast
                     constraints.iter_mut().for_each(|(x, y)| {
                         replace_unknown_with_other(x, var_id, &other_type);
                         replace_unknown_with_other(y, var_id, &other_type);
-                        if *x == Type::Unknown(var_id) {
-                            *x = other_type.clone();
-                        }
-                        if *y == Type::Unknown(var_id) {
-                            *y = other_type.clone();
-                        }
                     });
                 }
                 (Type::Array(size1), Type::Array(size2)) => match (size1, size2) {
-                    (Some(x), Some(y)) => {
-                        if x != y {
+                    (Some(size1), Some(size2)) => {
+                        if size1 != size2 {
                             errors
-                                .push(format!("Found different array lengths {:?} and {:?}", x, y))
+                                .push(format!("Found different array lengths {:?} and {:?}", size1, size2))
                         }
                     }
                     _ => (),
@@ -751,13 +745,22 @@ fn solve_constraints(constraints: Vec<(Type, Type)>, types: &IndexVec<crate::ast
                     constraints.push_back((*type1, *type2));
                     let mut map1 = HashMap::new();
                     let mut map2 = HashMap::new();
-                    for (names, values) in &values1 {
-                        map1.insert(names, values);
+                    let mut shared_names = HashSet::new();
+                    for (name, value) in &values1 {
+                        map1.insert(name, value);
+                        shared_names.insert(name);
                     }
-                    for (names, values) in &values2 {
-                        map2.insert(names, values);
+                    for (name, value) in &values2 {
+                        map2.insert(name, value);
+                        shared_names.insert(name);
                     }
-                    
+                    for name in shared_names {
+                        let x = map1.get(name);
+                        let y = map2.get(name);
+                        if let (Some(&x), Some(&y)) = (x, y) {
+                            constraints.push_back((x.clone(), y.clone()));
+                        }
+                    }
                 },
                 _ => (),
             }
@@ -785,15 +788,38 @@ fn replace_unknown_with_other(x: &mut Type, var_id: TypeVarID, other: &Type) {
 pub fn typecheck(source: &str) {
     let (ast, errors) = crate::ast::into_ast(source);
     let mut expr_types: IndexVec<ExprIdx, Option<Type>> = index_vec![None; ast.expressions.len()];
+    let mut decl_types: HashMap<DeclIdx, Type> = HashMap::new();
     for err in &errors {
         println!("Error: {}", err);
     }
-    let constraints = type_constraints(ast.clone(), &mut expr_types);
+    let constraints = type_constraints(ast.clone(), &mut expr_types, &mut decl_types);
     println!("{:?}", constraints);
-    let (rewrite_rules, errors) = solve_constraints(constraints, &ast.types);
+    for type_ in &expr_types {
+        if type_.is_none() {
+            panic!("could not find type for an expression!");
+        }
+    }
+    let mut expr_types: Vec<_> = expr_types.into_iter().map(|x| x.unwrap()).collect();
+    let (rewrite_rules, errors) = solve_constraints(constraints);
     for err in &errors {
         println!("Error: {}", err);
     }
     println!("{:?}", rewrite_rules);
+    for type_ in expr_types.iter_mut() {
+        for rule in &rewrite_rules {
+            if *type_ == rule.type_replaced {
+                *type_ = rule.replaced_by.clone();
+            }
+        }
+    };
+    for (_, type_) in decl_types.iter_mut() {
+        for rule in &rewrite_rules {
+            if *type_ == rule.type_replaced {
+                *type_ = rule.replaced_by.clone();
+            }
+        }
+    }
+    println!("{:?}", expr_types);
+    println!("{:?}", decl_types);
     todo!()
 }
