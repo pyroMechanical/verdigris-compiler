@@ -39,12 +39,13 @@ pub(crate) enum Type {
     Basic(TypeIdx),                //Represents a unique type that has a definition
     Array(Option<usize>),          //[] or [1]
     Tuple(usize),                  //(), (,), (,,), etc.
+    Placeholder,                   //used exclusively for placeholder expressions, to resolve partial application
     Reference {
         mutable: bool,
-    }, //& and &mut
+    },                             //& and &mut
     Pointer {
         mutable: bool,
-    }, //% and %mut
+    },                             //% and %mut
     TypeVar(TypeVarID),            // 'T
     Unknown(TypeVarID),            // all types that are unknown from the source file, but have exactly one correct answer
     Lifetime(LifetimeID),          // #a

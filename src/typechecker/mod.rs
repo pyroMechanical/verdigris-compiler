@@ -330,7 +330,7 @@ fn expr_type_constraints<'a, 'b>(source: ExprIdx, state: &mut State<'a, 'b>) -> 
                 vec![]
             }
             Expr::Placeholder => {
-                state.expr_types[source] = Some(new_unknown_type(state.var_types));
+                state.expr_types[source] = Some(Type::Placeholder);
                 vec![]
             }
             Expr::Block {
@@ -463,6 +463,7 @@ fn expr_type_constraints<'a, 'b>(source: ExprIdx, state: &mut State<'a, 'b>) -> 
             } => {
                 let mut result = expr_type_constraints(*condition, state);
                 result.append(&mut expr_type_constraints(*then, state));
+                state.expr_types[source] = state.expr_types[*then].clone();
                 match else_ {
                     None => (),
                     Some(else_) => {
@@ -486,6 +487,7 @@ fn expr_type_constraints<'a, 'b>(source: ExprIdx, state: &mut State<'a, 'b>) -> 
                     state.expr_types[*condition].clone().unwrap(),
                     Type::Basic(data_types::TYPE_BOOL.into()),
                 ));
+                state.expr_types[source] = state.expr_types[*body].clone();
                 result
             }
             Expr::Loop(expr) => {
@@ -794,8 +796,13 @@ pub fn typecheck(source: &str) {
     }
     let constraints = type_constraints(ast.clone(), &mut expr_types, &mut decl_types);
     println!("{:?}", constraints);
+    print!("[");
+    for (idx, expr) in ast.expressions.iter().enumerate() {
+        print!(" {:?}: {:?},", expr, expr_types[idx]);
+    };
+    println!("]");
     for type_ in &expr_types {
-        if type_.is_none() {
+        if type_.is_none() { 
             panic!("could not find type for an expression!");
         }
     }
@@ -803,7 +810,7 @@ pub fn typecheck(source: &str) {
     let (rewrite_rules, errors) = solve_constraints(constraints);
     for err in &errors {
         println!("Error: {}", err);
-    }
+    };
     println!("{:?}", rewrite_rules);
     for type_ in expr_types.iter_mut() {
         for rule in &rewrite_rules {
