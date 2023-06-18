@@ -800,7 +800,7 @@ fn replace_unknown_with_other(x: &mut Type, var_id: TypeVarID, other: &Type) {
         },
         Type::Unknown(id) => if *id == var_id {
             *x = other.clone();
-        },
+            },
         Type::Struct { values, .. } => {
             values.iter_mut().for_each(|(_, x)| replace_unknown_with_other(x, var_id, other));
         },
@@ -816,7 +816,6 @@ pub fn typecheck(source: &str) {
         println!("Error: {}", err);
     }
     let constraints = type_constraints(ast.clone(), &mut expr_types, &mut decl_types);
-    //println!("{:?}", constraints);
     for type_ in &expr_types {
         if type_.is_none() { 
             panic!("could not find type for an expression!");
@@ -827,23 +826,15 @@ pub fn typecheck(source: &str) {
     for err in &errors {
         println!("Error: {}", err);
     };
-    //println!("{:?}", rewrite_rules);
-    for type_ in expr_types.iter_mut() {
-        for rule in &rewrite_rules {
-            if *type_ == rule.type_replaced {
-                *type_ = rule.replaced_by.clone();
-            }
+    for rule in &rewrite_rules {
+        if let Type::Unknown(id) = rule.type_replaced {
+            expr_types.iter_mut().for_each(|x| replace_unknown_with_other(x, id, &rule.replaced_by));
         }
     };
-    for (idx, type_) in decl_types.iter_mut() {
-        for rule in &rewrite_rules {
-            if *type_ == rule.type_replaced {
-                *type_ = rule.replaced_by.clone();
-            }
+    for rule in &rewrite_rules {
+        if let Type::Unknown(id) = rule.type_replaced {
+            decl_types.iter_mut().for_each(|(_, x)| replace_unknown_with_other(x, id, &rule.replaced_by));
         }
-        println!("{:?}: {:?}", ast.declarations[*idx],type_);
-    }
-    //println!("{:?}", expr_types);
-    //println!("{:?}", decl_types);
+    };
     todo!()
 }
