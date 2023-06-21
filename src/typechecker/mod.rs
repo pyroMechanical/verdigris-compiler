@@ -1,11 +1,11 @@
 mod data_types;
 use crate::ast;
 use crate::parser::data_types::TokenKind;
-use ast::{decl::Decl, DeclIdx, expr::Expr, ExprIdx, SymbolTable};
+use ast::{decl::Decl, expr::Expr, DeclIdx, ExprIdx, SymbolTable};
 use data_types::{new_unknown_type, RewriteRule, State, Type, TypeVarID};
 use index_vec::{index_vec, IndexVec};
 use smol_str::SmolStr;
-use std::{collections::{VecDeque, HashMap, HashSet}};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 fn identifier_definition<'a>(
     scopes: &'a Vec<&SymbolTable>,
@@ -23,7 +23,7 @@ fn identifier_definition<'a>(
 }
 
 fn identifier_definition_index(
-    scopes: & Vec<&SymbolTable>,
+    scopes: &Vec<&SymbolTable>,
     id: &str,
     index: usize,
 ) -> Option<DeclIdx> {
@@ -36,7 +36,7 @@ fn identifier_definition_index(
     return None;
 }
 
-fn type_from_path_expression(expr: ExprIdx, state: &mut State) -> Option<Type>{
+fn type_from_path_expression(expr: ExprIdx, state: &mut State) -> Option<Type> {
     match &state.expressions[expr] {
         Expr::Identifier { name, .. } => {
             for scope in state.scopes.iter().rev() {
@@ -44,9 +44,9 @@ fn type_from_path_expression(expr: ExprIdx, state: &mut State) -> Option<Type>{
                     None => (),
                     Some(x) => return Some(Type::Basic(x)),
                 }
-            };
+            }
             return None;
-        },
+        }
         Expr::Path { lhs, rhs } => {
             let scope = namespace_from_path(*lhs, state);
             match scope {
@@ -59,36 +59,45 @@ fn type_from_path_expression(expr: ExprIdx, state: &mut State) -> Option<Type>{
                         expressions: state.expressions,
                         expr_types: state.expr_types,
                         var_types: state.var_types,
-                        map: state.map
+                        map: state.map,
                     };
                     type_from_path_expression(*rhs, &mut new_state)
                 }
             }
-        },
-        _ => None
+        }
+        _ => None,
     }
 }
 
-fn convert_var_to_unknown(t: &Type, map: &mut HashMap<TypeVarID, usize>, var_types: &mut usize) -> Type {
+fn convert_var_to_unknown(
+    t: &Type,
+    map: &mut HashMap<TypeVarID, usize>,
+    var_types: &mut usize,
+) -> Type {
     match t {
         Type::Applied(app, types) => {
             let app = convert_var_to_unknown(&**app, map, var_types);
-            let types = types.iter().map(|x| convert_var_to_unknown(x, map, var_types)).collect();
+            let types = types
+                .iter()
+                .map(|x| convert_var_to_unknown(x, map, var_types))
+                .collect();
             Type::Applied(Box::new(app), types)
-        },
+        }
         Type::TypeVar(var_id) => {
             match map.entry(*var_id) {
-                std::collections::hash_map::Entry::Occupied(occupied) => return Type::Unknown(TypeVarID(*occupied.get())),
+                std::collections::hash_map::Entry::Occupied(occupied) => {
+                    return Type::Unknown(TypeVarID(*occupied.get()))
+                }
                 std::collections::hash_map::Entry::Vacant(vacant) => {
                     let x = *var_types;
                     *var_types += 1;
                     vacant.insert(x);
-                    return Type::Unknown(TypeVarID(x))
-                },
+                    return Type::Unknown(TypeVarID(x));
+                }
             };
-        },
+        }
         Type::Lifetime(_var_id) => todo!(),
-        x => x.clone()
+        x => x.clone(),
     }
 }
 
@@ -104,10 +113,25 @@ fn type_constraints(
     for (idx, declaration) in source.declarations.iter().enumerate() {
         let idx: DeclIdx = idx.into();
         match declaration {
-            Decl::Variable {type_, ..} | Decl::Function {type_, ..} => {
-                match type_ {
-                    None => {decl_types.insert(idx, new_unknown_type(&mut var_types));},
-                    Some(type_) => {decl_types.insert(idx, convert_var_to_unknown(&Type::lower(type_, &mut symbol_tables, &mut HashMap::new(), &mut var_types).unwrap(), &mut HashMap::new(), &mut var_types));}
+            Decl::Variable { type_, .. } | Decl::Function { type_, .. } => match type_ {
+                None => {
+                    decl_types.insert(idx, new_unknown_type(&mut var_types));
+                }
+                Some(type_) => {
+                    decl_types.insert(
+                        idx,
+                        convert_var_to_unknown(
+                            &Type::lower(
+                                type_,
+                                &mut symbol_tables,
+                                &mut HashMap::new(),
+                                &mut var_types,
+                            )
+                            .unwrap(),
+                            &mut HashMap::new(),
+                            &mut var_types,
+                        ),
+                    );
                 }
             },
             _ => (),
@@ -224,7 +248,7 @@ fn function_return_type_constraints(
                 constraints.append(&mut function_return_type_constraints(*arg, state));
             }
             constraints
-        },
+        }
         Expr::StructInit { lhs, arguments } => {
             let mut constraints = function_return_type_constraints(*lhs, state);
             for (_, arg) in arguments {
@@ -237,14 +261,11 @@ fn function_return_type_constraints(
     }
 }
 
-fn decl_type_constraints(
-    source: crate::ast::DeclIdx,
-    state: &mut State,
-) -> Vec<(Type, Type)> {
+fn decl_type_constraints(source: crate::ast::DeclIdx, state: &mut State) -> Vec<(Type, Type)> {
     if let Some(decl) = state.declarations.get(source) {
         match decl {
             Decl::Missing => vec![],
-            Decl::Variable {value, .. } => match value {
+            Decl::Variable { value, .. } => match value {
                 Some(value) => {
                     let type_ = state.decl_types[&source].clone();
                     let mut result = expr_type_constraints(*value, state);
@@ -263,8 +284,8 @@ fn decl_type_constraints(
                 let mut type_from_arguments = new_unknown_type(state.var_types);
                 for decl in symbols.value_declarations.iter().rev() {
                     type_from_arguments = Type::Applied(
-                        Box::new(Type::Arrow), 
-                        vec![state.decl_types[decl].clone(), type_from_arguments]
+                        Box::new(Type::Arrow),
+                        vec![state.decl_types[decl].clone(), type_from_arguments],
                     );
                 }
                 dbg!(&type_from_arguments);
@@ -277,15 +298,17 @@ fn decl_type_constraints(
                         let mut types = vec![];
                         for arg in &symbols.value_declarations {
                             match &state.declarations[*arg] {
-                                Decl::Variable { type_, .. } => types.push(
-                                    convert_var_to_unknown(&Type::lower(
+                                Decl::Variable { type_, .. } => types.push(convert_var_to_unknown(
+                                    &Type::lower(
                                         type_.as_ref().unwrap(),
                                         state.scopes,
                                         &mut state.map.clone(),
                                         state.var_types,
                                     )
-                                    .unwrap(), &mut HashMap::new(), state.var_types)
-                                ),
+                                    .unwrap(),
+                                    &mut HashMap::new(),
+                                    state.var_types,
+                                )),
                                 _ => unreachable!(),
                             };
                         }
@@ -296,18 +319,31 @@ fn decl_type_constraints(
                         }
                         constraints.push((
                             return_type,
-                            Type::lower(type_.as_ref().unwrap(), state.scopes, &mut state.map.clone(), state.var_types)
-                                .unwrap(),
+                            Type::lower(
+                                type_.as_ref().unwrap(),
+                                state.scopes,
+                                &mut state.map.clone(),
+                                state.var_types,
+                            )
+                            .unwrap(),
                         ));
                     }
                 }
-                let function_type = Type::lower(type_.as_ref().unwrap(), state.scopes, &mut HashMap::new(), state.var_types).unwrap();
+                let function_type = Type::lower(
+                    type_.as_ref().unwrap(),
+                    state.scopes,
+                    &mut HashMap::new(),
+                    state.var_types,
+                )
+                .unwrap();
                 dbg!(&function_type);
                 constraints.push((type_from_arguments.clone(), function_type));
                 constraints
             }
             Decl::Operator { .. } => vec![],
-            Decl::Class { body, defined_type, .. } => {
+            Decl::Class {
+                body, defined_type, ..
+            } => {
                 let mut map = HashMap::new();
                 Type::lower(&defined_type, state.scopes, &mut map, state.var_types);
                 let mut new_state = State {
@@ -319,8 +355,8 @@ fn decl_type_constraints(
                     var_types: state.var_types,
                     map: &mut map,
                 };
-                 expr_type_constraints(*body, &mut new_state)
-            },
+                expr_type_constraints(*body, &mut new_state)
+            }
             Decl::Implementation { body, .. } => expr_type_constraints(*body, state),
             Decl::Module { body, .. } => expr_type_constraints(*body, state),
             Decl::Union { .. } => vec![],
@@ -382,13 +418,23 @@ fn expr_type_constraints(source: ExprIdx, state: &mut State) -> Vec<(Type, Type)
                 );
                 let func_type = Type::Applied(Box::new(Type::Arrow), vec![lhs_type, out]);
 
-                let decl = identifier_definition(state.scopes, state.declarations, op.str(), op_idx.unwrap());
+                let decl = identifier_definition(
+                    state.scopes,
+                    state.declarations,
+                    op.str(),
+                    op_idx.unwrap(),
+                );
                 let operator_type = if let Some(decl) = decl {
                     match decl {
                         Decl::Variable { type_, .. } | Decl::Function { type_, .. } => {
                             match type_ {
                                 None => None,
-                                Some(t) => Type::lower(&t, state.scopes, &mut state.map.clone(), state.var_types),
+                                Some(t) => Type::lower(
+                                    &t,
+                                    state.scopes,
+                                    &mut state.map.clone(),
+                                    state.var_types,
+                                ),
                             }
                         }
                         _ => None,
@@ -398,7 +444,10 @@ fn expr_type_constraints(source: ExprIdx, state: &mut State) -> Vec<(Type, Type)
                 };
                 match operator_type {
                     None => (),
-                    Some(type_) => result.push((func_type, convert_var_to_unknown(&type_, &mut HashMap::new(), state.var_types))),
+                    Some(type_) => result.push((
+                        func_type,
+                        convert_var_to_unknown(&type_, &mut HashMap::new(), state.var_types),
+                    )),
                 };
                 result
             }
@@ -409,7 +458,12 @@ fn expr_type_constraints(source: ExprIdx, state: &mut State) -> Vec<(Type, Type)
             }
             Expr::Prefix { op, op_idx, expr } => {
                 let mut result = expr_type_constraints(*expr, state);
-                let decl = identifier_definition(state.scopes, state.declarations, op.str(), op_idx.unwrap());
+                let decl = identifier_definition(
+                    state.scopes,
+                    state.declarations,
+                    op.str(),
+                    op_idx.unwrap(),
+                );
 
                 let expr_type = state.expr_types[*expr].clone().unwrap();
                 let func_type = Type::Applied(
@@ -422,7 +476,12 @@ fn expr_type_constraints(source: ExprIdx, state: &mut State) -> Vec<(Type, Type)
                         Decl::Variable { type_, .. } | Decl::Function { type_, .. } => {
                             match type_ {
                                 None => None,
-                                Some(t) => Type::lower(&t, state.scopes, &mut state.map.clone(), state.var_types),
+                                Some(t) => Type::lower(
+                                    &t,
+                                    state.scopes,
+                                    &mut state.map.clone(),
+                                    state.var_types,
+                                ),
                             }
                         }
                         _ => None,
@@ -432,7 +491,10 @@ fn expr_type_constraints(source: ExprIdx, state: &mut State) -> Vec<(Type, Type)
                 };
                 match operator_type {
                     None => (),
-                    Some(type_) => result.push((func_type, convert_var_to_unknown(&type_, &mut HashMap::new(), state.var_types))),
+                    Some(type_) => result.push((
+                        func_type,
+                        convert_var_to_unknown(&type_, &mut HashMap::new(), state.var_types),
+                    )),
                 };
                 result
             }
@@ -615,15 +677,24 @@ fn expr_type_constraints(source: ExprIdx, state: &mut State) -> Vec<(Type, Type)
                     let arg_type = state.expr_types[*arg].clone().unwrap();
                     if let Type::Placeholder = arg_type {
                         let unknown = new_unknown_type(state.var_types);
-                        function_call_type = Type::Applied(Box::new(Type::Arrow), vec![unknown.clone(), function_call_type]);
-                        return_type = Type::Applied(Box::new(Type::Arrow), vec![unknown, return_type]);
-                    }
-                    else {
-                        function_call_type = Type::Applied(Box::new(Type::Arrow), vec![arg_type, function_call_type]);
+                        function_call_type = Type::Applied(
+                            Box::new(Type::Arrow),
+                            vec![unknown.clone(), function_call_type],
+                        );
+                        return_type =
+                            Type::Applied(Box::new(Type::Arrow), vec![unknown, return_type]);
+                    } else {
+                        function_call_type = Type::Applied(
+                            Box::new(Type::Arrow),
+                            vec![arg_type, function_call_type],
+                        );
                     }
                 }
                 state.expr_types[source] = Some(return_type);
-                constraints.push((convert_var_to_unknown(&fn_type, &mut HashMap::new(), state.var_types), function_call_type));
+                constraints.push((
+                    convert_var_to_unknown(&fn_type, &mut HashMap::new(), state.var_types),
+                    function_call_type,
+                ));
                 constraints
             }
             Expr::Lambda {
@@ -647,16 +718,26 @@ fn expr_type_constraints(source: ExprIdx, state: &mut State) -> Vec<(Type, Type)
                 state.scopes.pop();
                 constraints
             }
-            Expr::StructInit { lhs, arguments  } => {
-                let type_ = type_from_path_expression(*lhs, state).or_else(|| Some(new_unknown_type(state.var_types)));
+            Expr::StructInit { lhs, arguments } => {
+                let type_ = type_from_path_expression(*lhs, state)
+                    .or_else(|| Some(new_unknown_type(state.var_types)));
                 state.expr_types[*lhs] = type_.clone();
                 let mut constraints = vec![];
                 let mut values: Vec<(SmolStr, Type)> = vec![];
                 for (name, argument) in arguments {
                     constraints.append(&mut expr_type_constraints(*argument, state));
-                    values.push((name.str.clone(), state.expr_types[*argument].clone().unwrap_or(new_unknown_type(state.var_types))));
+                    values.push((
+                        name.str.clone(),
+                        state.expr_types[*argument]
+                            .clone()
+                            .unwrap_or(new_unknown_type(state.var_types)),
+                    ));
                 }
-                state.expr_types[source] = Some(Type::Struct{struct_type: Box::new(type_.unwrap_or(new_unknown_type(state.var_types))), values, complete:true});
+                state.expr_types[source] = Some(Type::Struct {
+                    struct_type: Box::new(type_.unwrap_or(new_unknown_type(state.var_types))),
+                    values,
+                    complete: true,
+                });
                 constraints
             }
             Expr::FieldCall { lhs, rhs } => {
@@ -686,10 +767,7 @@ fn expr_type_constraints(source: ExprIdx, state: &mut State) -> Vec<(Type, Type)
 /// expects only the parts of the path that are namespaces.
 /// for example, if the full path is core::mem::x,
 /// the path provided to this function would be core::mem.
-fn namespace_from_path<'a>(
-    source: ExprIdx,
-    state: &mut State<'a, '_>,
-) -> Option<&'a SymbolTable> {
+fn namespace_from_path<'a>(source: ExprIdx, state: &mut State<'a, '_>) -> Option<&'a SymbolTable> {
     match state.expressions.get(source)? {
         Expr::Identifier { name, .. } => {
             for scope in state.scopes.iter().rev() {
@@ -750,8 +828,10 @@ fn solve_constraints(constraints: Vec<(Type, Type)>) -> (Vec<RewriteRule>, Vec<S
                 (Type::Array(size1), Type::Array(size2)) => match (size1, size2) {
                     (Some(size1), Some(size2)) => {
                         if size1 != size2 {
-                            errors
-                                .push(format!("Found different array lengths {:?} and {:?}", size1, size2))
+                            errors.push(format!(
+                                "Found different array lengths {:?} and {:?}",
+                                size1, size2
+                            ))
                         }
                     }
                     _ => (),
@@ -763,8 +843,19 @@ fn solve_constraints(constraints: Vec<(Type, Type)>) -> (Vec<RewriteRule>, Vec<S
                             size1, size2
                         ))
                     }
-                },
-                (Type::Struct{ struct_type: type1, values:values1, complete:_complete1}, Type::Struct { struct_type: type2, values:values2, complete:_complete2 }) => {
+                }
+                (
+                    Type::Struct {
+                        struct_type: type1,
+                        values: values1,
+                        complete: _complete1,
+                    },
+                    Type::Struct {
+                        struct_type: type2,
+                        values: values2,
+                        complete: _complete2,
+                    },
+                ) => {
                     constraints.push_back((*type1, *type2));
                     let mut map1 = HashMap::new();
                     let mut map2 = HashMap::new();
@@ -784,7 +875,7 @@ fn solve_constraints(constraints: Vec<(Type, Type)>) -> (Vec<RewriteRule>, Vec<S
                             constraints.push_back((x.clone(), y.clone()));
                         }
                     }
-                },
+                }
                 x => println!("no match found for {:?}", x),
             }
         }
@@ -796,15 +887,20 @@ fn replace_unknown_with_other(x: &mut Type, var_id: TypeVarID, other: &Type) {
     match x {
         Type::Applied(app, vars) => {
             replace_unknown_with_other(app, var_id, other);
-            vars.iter_mut().for_each(|x| replace_unknown_with_other(x, var_id, other));
-        },
-        Type::Unknown(id) => if *id == var_id {
-            *x = other.clone();
-            },
+            vars.iter_mut()
+                .for_each(|x| replace_unknown_with_other(x, var_id, other));
+        }
+        Type::Unknown(id) => {
+            if *id == var_id {
+                *x = other.clone();
+            }
+        }
         Type::Struct { values, .. } => {
-            values.iter_mut().for_each(|(_, x)| replace_unknown_with_other(x, var_id, other));
-        },
-        _ => ()
+            values
+                .iter_mut()
+                .for_each(|(_, x)| replace_unknown_with_other(x, var_id, other));
+        }
+        _ => (),
     }
 }
 
@@ -817,7 +913,7 @@ pub fn typecheck(source: &str) {
     }
     let constraints = type_constraints(ast.clone(), &mut expr_types, &mut decl_types);
     for type_ in &expr_types {
-        if type_.is_none() { 
+        if type_.is_none() {
             panic!("could not find type for an expression!");
         }
     }
@@ -825,16 +921,22 @@ pub fn typecheck(source: &str) {
     let (rewrite_rules, errors) = solve_constraints(constraints);
     for err in &errors {
         println!("Error: {}", err);
-    };
+    }
     for rule in &rewrite_rules {
         if let Type::Unknown(id) = rule.type_replaced {
-            expr_types.iter_mut().for_each(|x| replace_unknown_with_other(x, id, &rule.replaced_by));
+            expr_types
+                .iter_mut()
+                .for_each(|x| replace_unknown_with_other(x, id, &rule.replaced_by));
         }
-    };
+    }
     for rule in &rewrite_rules {
         if let Type::Unknown(id) = rule.type_replaced {
-            decl_types.iter_mut().for_each(|(_, x)| replace_unknown_with_other(x, id, &rule.replaced_by));
+            decl_types
+                .iter_mut()
+                .for_each(|(_, x)| replace_unknown_with_other(x, id, &rule.replaced_by));
         }
-    };
+    }
+    println!("{:?}", expr_types);
+    println!("{:?}", decl_types);
     todo!()
 }

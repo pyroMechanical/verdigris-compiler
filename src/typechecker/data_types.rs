@@ -1,5 +1,5 @@
 use crate::ast;
-use ast::{ArrowType, SymbolTable, TypeIdx, expr::Expr, decl::Decl, DeclIdx, ExprIdx};
+use ast::{SymbolTable, TypeIdx, expr::Expr, decl::Decl, DeclIdx, ExprIdx};
 use smol_str::SmolStr;
 use index_vec::IndexVec;
 use std::collections::HashMap;
@@ -33,6 +33,15 @@ pub(crate) struct State<'a, 'b> {
     pub(crate) map: &'b mut HashMap<String, usize>
 }
 
+//todo!: replace Type::Arrow | MutArrow | OnceArrow with Type::Arrow(ArrowType)
+#[allow(unused)]
+pub(crate) enum ArrowType {
+    None,
+    FnArrow,                       // (->)
+    MutArrow,                      // (*>)
+    OnceArrow,                     // (+>)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Type {
     Applied(Box<Type>, Vec<Type>), //used for all higher-order types, including functions, slices, and tuples
@@ -52,12 +61,19 @@ pub(crate) enum Type {
     Arrow,                         // (->)
     MutArrow,                      // (*>)
     OnceArrow,                     // (+>)
+    Constrained(Vec<Constraint>, Box<Type>),
     Struct {
         struct_type: Box<Type>,
         values: Vec<(SmolStr, Type)>,
         complete: bool,
     },
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Constraint {
+    typeclass: TypeIdx, //find better type to store this info?
+    impl_types: Vec<Type>
+}
+
 
 pub(crate) const TYPE_BOOL: usize = 0;
 pub(crate) const TYPE_I8: usize = 1;
@@ -93,10 +109,10 @@ impl Type {
                 output,
             } => {
                 let arrow = Box::new(match arrow {
-                    ArrowType::Missing => return None,
-                    ArrowType::Arrow => Self::Arrow,
-                    ArrowType::MutArrow => Self::MutArrow,
-                    ArrowType::OnceArrow => Self::OnceArrow,
+                    ast::ArrowType::Missing => return None,
+                    ast::ArrowType::Arrow => Self::Arrow,
+                    ast::ArrowType::MutArrow => Self::MutArrow,
+                    ast::ArrowType::OnceArrow => Self::OnceArrow,
                 });
                 let input = Self::lower(input, scopes, map, vartypes)?;
                 let output = Self::lower(output, scopes, map, vartypes)?;
