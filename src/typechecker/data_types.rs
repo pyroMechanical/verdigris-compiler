@@ -61,7 +61,7 @@ pub(crate) enum Type {
     Arrow,                         // (->)
     MutArrow,                      // (*>)
     OnceArrow,                     // (+>)
-    Constrained(Vec<Constraint>, Box<Type>),
+    _Constrained(Vec<Constraint>, Box<Type>),
     Struct {
         struct_type: Box<Type>,
         values: Vec<(SmolStr, Type)>,
